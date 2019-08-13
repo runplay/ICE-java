@@ -120,9 +120,13 @@ public class Ice {
 
     // Secret Key
     public static final String KEY_PBKDF2WithHmacSHA1="PBKDF2WithHmacSHA1";
+    public static final String KEY_PBKDF2WithHmacSHA256="PBKDF2WithHmacSHA256";
+    public static final String KEY_PBKDF2WithHmacSHA512="PBKDF2WithHmacSHA512";
     private static final List<String> validKeys=new ArrayList<>();
     static {
         validKeys.add(KEY_PBKDF2WithHmacSHA1);
+        validKeys.add(KEY_PBKDF2WithHmacSHA256);
+        validKeys.add(KEY_PBKDF2WithHmacSHA512);
     }
 
     private static final Map<String,Charset> charsets=new HashMap();
@@ -190,7 +194,8 @@ public class Ice {
     /*
 
     Ice.Tray
-
+    The tray is for Server side implementations.
+    
      */
     public static class Tray {
 
@@ -333,20 +338,34 @@ public class Ice {
 
 
     /*
-    Ice.Pop
+    Ice.Pop - PGP implementation 
      */
 
     private static final byte[] rsaSeperatorBytes=Ice.stringToBytes("\n--DATA\n");
+
     public static class Pop {
         private final Flavour flavour;
         private final PublicKey usePublicKey;
         private final PrivateKey usePrivateKey;
-
+        /**
+         * Constructor for Client side PGP
+         * displays when the cursor lingers over the component.
+         *
+         * @param flavour   the type of encryption to use
+         * @param useKey    RSA Public Key received from the Server side (handshake open RSA public key)
+         */
         public Pop(Flavour flavour, PublicKey useKey) {
             this.flavour=flavour;
             this.usePublicKey=useKey;
             this.usePrivateKey=null;
         }
+        /**
+         * Constructor for Server side PGP
+         * displays when the cursor lingers over the component.
+         *
+         * @param flavour   the type of encryption to use
+         * @param useKey    RSA Private Key
+         */
         public Pop(Flavour flavour, PrivateKey useKey) {
             this.flavour=flavour;
             this.usePrivateKey=useKey;
@@ -381,10 +400,21 @@ public class Ice {
 
             }
         }
-
+        /**
+         * Encrypt the data for sending to the Server side
+         * displays when the cursor lingers over the component.
+         *
+         * @param bytesToEncrypt   the data to encrypt and send to the server
+         */
         private byte[] encrypt(byte[] bytesToEncrypt) throws Exception {
             return IceRSA.encrypt(bytesToEncrypt, usePublicKey);
         }
+        /**
+         * Decrypt the data received from client side
+         * displays when the cursor lingers over the component.
+         *
+         * @param bytesToDecrypt   the data to decrypt received from the client side
+         */
         private String decrypt(byte[] bytesToDecrypt) throws Exception {
             return IceRSA.decrypt(bytesToDecrypt,usePrivateKey);
         }
@@ -392,22 +422,21 @@ public class Ice {
     }
     /*
     Ice.PopKey
-
+    Simple container class for the RSA keys.
      */
     public static class PopKey {
         private final String privateKey;
         private final String publicKey;
 
-        public PopKey(String publicKey) {
+        private PopKey(String publicKey) {
             this.publicKey=publicKey;
             this.privateKey=null;
 
         }
-        public PopKey(String publicKey,String privateKey) {
+        private PopKey(String publicKey,String privateKey) {
             this.publicKey=publicKey;
             this.privateKey=privateKey;
         }
-
         public String getPrivateKey() {
             return privateKey;
         }
@@ -420,15 +449,26 @@ public class Ice {
 
     /*
     Ice.Block
-
+    Class to hold the password and salt data for the AES encryption
      */
     public static class Block {
         public final String password;
         public final String salt;
+        /**
+         * Create the password block with specified salt value
+         *
+         * @param password      the password to use
+         * @param salt          the salt
+         */
         public Block(String password,String salt) {
             this.password =password;
             this.salt= salt;
         }
+        /**
+         * Create the password block using the default salt value
+         *
+         * @param password      the password to use
+         */
         public Block(String password) {
             this.password = password;
             this.salt= DEFAULT_SALT;
@@ -448,11 +488,21 @@ public class Ice {
         private Pack() {  }
         @Override
         public final String toString() {
-            return bytesToString(bytes);
+            if(bytes!=null)
+                return bytesToString(bytes);
+            return "";
         }
+        /**
+         * returns the result in a url encoded String for safe transportation across the web
+         * 
+         * @param charset pass the charset to encode the String with.
+         */
         public final String toStringUrlSafe(String charset) throws UnsupportedEncodingException {
             return URLEncoder.encode(toString(), charset);
         }
+        /**
+         * returns the result in a url encoded String for safe transportation across the web
+         */
         public final String toStringUrlSafe() {
             try {
                 return URLEncoder.encode(toString(), "UTF-8");
@@ -468,12 +518,23 @@ public class Ice {
         public boolean isSuccess() {
             return success;
         }
+        /**
+         * If isSuccess() returns false, the reason can be viewed here
+         */
         public final String getMessage() {
             return message;
         }
+        /**
+         * If isSuccess() returns false and an exception was thrown, then can see it here, can be null
+         */
         public final Exception getException() {
             return e;
         }
+        /**
+         * write the pack result data to the passed file
+         * 
+         * @param file the file to write the pack result data to
+         */
         public boolean writeFile(File file) throws IOException {
             if(file!=null) {
                 if(!file.exists()) {
@@ -486,8 +547,10 @@ public class Ice {
     }
 
     /*
-    Ice.CoolPack = Callback
-     */
+    * Ice.CoolPack = Callback
+    * Allows the encryption, decryption, compression, decompression, encding to be done within a seperate Thread with a callback when finished
+    *
+    */
     public interface CoolPack {
         void go(Pack pack);
     }
@@ -507,10 +570,11 @@ public class Ice {
         private boolean isAes=true;
         private String iv;
         private Pop pgp;
-        //private String pgpKey;
 
         private final List<Pick> tasks=new ArrayList();
-
+        /**
+         * Clone this Flavour
+         */
         protected Flavour clone() {
             if(pgp!=null) {
                 return new Flavour(pgp, tasks);
@@ -518,7 +582,12 @@ public class Ice {
                 return new Flavour(cipher, secretKey, iv, keyLength, iterations, tasks);
             }
         }
-
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param pgp Ice.Pop is PGP details
+         * @param tasks list... of the Ice.Pick tasks to perform.
+         */
         public Flavour(Pop pgp, Pick... tasks) {
             this.pgp=pgp;
             this.iv=null;
@@ -529,6 +598,7 @@ public class Ice {
             addTasks(tasks);
             isAes=false;
         }
+
         private Flavour(Pop pgp, List<Pick> tasks) {
             this.pgp=pgp;
             //this.pgpKey=pgpKey;
@@ -540,6 +610,7 @@ public class Ice {
             this.tasks.addAll(tasks);
             isAes=false;
         }
+
         private Flavour(String CIPHER_, String KEY_, String ivHex, int keyLength, int iterations) {
             this.iv=ivHex;
             this.cipher=CIPHER_;
@@ -547,30 +618,78 @@ public class Ice {
             this.iterations=iterations;
             this.keyLength=keyLength;
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param CIPHER_ Ice.CIPHER_XXXX cipher to use
+         * @param KEY_ Ice.KEY_XXXX secret key to use
+         * @param ivHex The IV to use with the encryption
+         * @param keyLength encryption keyLength
+         * @param iterations AES iterations to perform when encrypting, the higher the value the more secure, also the longer the process
+         * @param tasks list<> of the Ice.Pick tasks to perform.
+         */
         public Flavour(String CIPHER_, String KEY_, String ivHex, int keyLength, int iterations,List<Pick> tasks) {
             this(CIPHER_,KEY_,ivHex,keyLength,iterations);
             this.tasks.addAll(tasks);
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param CIPHER_ Ice.CIPHER_XXXX cipher to use
+         * @param KEY_ Ice.KEY_XXXX secret key to use
+         * @param ivHex The IV to use with the encryption
+         * @param keyLength encryption keyLength
+         * @param iterations AES iterations to perform when encrypting, the higher the value the more secure, also the longer the process
+         * @param tasks list... of the Ice.Pick tasks to perform.
+         */
         public Flavour(String CIPHER_, String KEY_, String ivHex, int keyLength, int iterations, Pick... tasks) {
             this(CIPHER_,KEY_,ivHex,keyLength,iterations);
             addTasks(tasks);
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param CIPHER_ Ice.CIPHER_XXXX cipher to use
+         * @param KEY_ Ice.KEY_XXXX secret key to use
+         * @param ivHex The IV to use with the encryption
+         * @param tasks list... of the Ice.Pick tasks to perform.
+         */
         public Flavour(String CIPHER_, String KEY_, String ivHex, Pick... tasks) {
             this(CIPHER_,KEY_,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(tasks);
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param ivHex The IV to use with the encryption
+         * @param tasks list... of the Ice.Pick tasks to perform.
+         */
         public Flavour(String ivHex, Pick... tasks) {
             this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(tasks);
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param tasks list... of the Ice.Pick tasks to perform.
+         */
         public Flavour(Pick... tasks) {
             this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,DEFAULT_IV_HEX,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(tasks);
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * 
+         * @param ivHex The IV to use with the encryption
+         */
         public Flavour(String ivHex) {
             this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(Pick.ENCRYPTION);
         }
+        /**
+         * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
+         * Uses all defaults
+         */
         public Flavour() {
             this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,DEFAULT_IV_HEX,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(Pick.ENCRYPTION);
@@ -584,21 +703,34 @@ public class Ice {
         }
     }
 
-
+    /**
+     * with method creates an Ice Maker with the passed Flavour
+     * @param flavour the encryption flavour to use
+     */
     public static final Maker with(Flavour flavour)   {
         Maker maker=new Maker(flavour);
         maker.preFreeze();
         return maker;
     }
+    /**
+     * with method creates an Ice Maker with the passed Flavour
+     * @param pgp the PGP Pop flavour to use
+     */
     public static final Maker with(Pop pgp, Pick... tasks)   {
         Maker maker=new Maker(new Flavour(pgp, tasks));
-        //maker.preFreeze();
         if(maker.flavour.pgp==null) {
             maker.halted=true;
             maker.message="Cracked Ice:  Pop is null";
         }
         return maker;
     }
+    /**
+     * with method creates an Ice Maker with the default Flavour
+     * @param iv The IV to use with the encryption
+     * @param password the password to encrypt with
+     * @param salt the salt value to use
+     * @param tasks list... of the Ice.Pick tasks to perform.
+     */
     public static final Maker withBlock(String iv, String password, String salt, Pick... tasks)   {
         Maker maker =null;
         if(password!=null && salt!=null && iv!=null && password.length()>0) {
@@ -613,6 +745,9 @@ public class Ice {
         return maker;
     }
 
+    /**
+     * The Maker class, main container class for all the specifics of the Ice process
+     */
     public static class Maker {
         private static final int MODE_UNLOCKED=0;
         public static final int MODE_PACK=1;
@@ -631,7 +766,9 @@ public class Ice {
         private boolean halted=false;
         private String message;
         private Exception haltedEx;
-
+        /**
+         * The Maker constructor
+         */
         private Maker(Flavour flavour) {
             if(flavour==null) {
                 halted=true;
@@ -692,19 +829,40 @@ public class Ice {
                 message = null;
             }
         }
+        /**
+         * The Maker block method, the block contain password and salt data
+         * 
+         * @param password the password to encrypt with
+         */
         public final Maker block(String password) {
             if(salty!=null) {
                 return block(password,salty);
             }
             return block(new Block(password));
         }
+        /**
+         * The Maker block method, the block contain password and salt data
+         * 
+         * @param password the password to encrypt with
+         * @param salt the salt to use
+         */
         public final Maker block(String password, String salt) {
             return block(new Block(password,salt));
         }
+        /**
+         * The Maker salt method, adds salt data, allows putting password and salt data in different parts of the system
+         * 
+         * @param salt the salt to use
+         */
         public Maker salt(String salt) {
             salty=salt;
             return this;
         }
+        /**
+        * drip method, allow adding of iv at any time
+        * 
+        * @param iv The IV to use with the encryption
+        */
         public final Maker drip(String iv) {
             if(flavour!=null && iv!=null) {
                 clearHalted();
@@ -713,7 +871,7 @@ public class Ice {
             }
             return this;
         }
-        public final Maker block(Block block) {
+        private final Maker block(Block block) {
             if(flavour.isAes) {
                 clearHalted();
                 this.block=block;
@@ -751,9 +909,32 @@ public class Ice {
             }
             return this;
         }
-
+        /**
+         * freezePack method puts all data in and immediately runs the Ice.Maker, once done the pack is passed back with the CoolPack (callback)
+         * This method is mainly for long running tasks (high level of encryption / large data)
+         * Encryption only
+         * 
+         * @param cbytes The bytes to encrypt
+         * @param password The password
+         * @param salt The salt
+         * @param callback The callback method to return the Pack result.
+         */
         public void freezePack(byte[] cbytes, String password, String salt, CoolPack callback) {
             freezePackRun thread = new freezePackRun(this,cbytes, password, salt, callback);
+            thread.start();
+        }
+        /**
+         * freezePack method puts all data in and immediately runs the Ice.Maker, once done the pack is passed back with the CoolPack (callback)
+         * This method is mainly for long running tasks (high level of encryption / large data)
+         * Encryption only
+         * 
+         * @param packText the data to encrypt in String form
+         * @param password The password
+         * @param salt The salt
+         * @param callback The callback method to return the Pack result.
+         */
+        public void freezePack(String packText, String password, String salt, CoolPack callback) {
+            freezePackRun thread = new freezePackRun(this,stringToBytes(packText), password, salt, callback);
             thread.start();
         }
         private class freezePackRun extends Thread {
@@ -779,10 +960,30 @@ public class Ice {
                 }
             }
         }
+        /**
+         * freezeUnpackPack method puts all data in and immediately runs the Ice.Maker, once done the pack is passed back with the CoolPack (callback)
+         * This method is mainly for long running tasks (high level of encryption / large data)
+         * Decryption only
+         * 
+         * @param packedText the data to decrypt in String form
+         * @param password The password
+         * @param salt The salt
+         * @param callback The callback method to return the Pack result.
+         */
         public void freezeUnpack(String packedText, String password,  String salt, CoolPack callback) {
             freezeUnpackRun thread = new freezeUnpackRun(this,stringToBytes(packedText), password, salt, callback);
             thread.start();
         }
+        /**
+         * freezeUnpackPack method puts all data in and immediately runs the Ice.Maker, once done the pack is passed back with the CoolPack (callback)
+         * This method is mainly for long running tasks (high level of encryption / large data)
+         * Decryption only
+         * 
+         * @param packedBytes the data to decrypt in bytes[] form
+         * @param password The password
+         * @param salt The salt
+         * @param callback The callback method to return the Pack result.
+         */
         public void freezeUnpack(byte[] packedBytes, String password, String salt, CoolPack callback) {
             freezeUnpackRun thread = new freezeUnpackRun(this,cbytes, password, salt, callback);
             thread.start();
@@ -846,6 +1047,12 @@ public class Ice {
                 }
             }
         }
+        /**
+         * freeze method, adds in the data to encrypt / decrypt
+         * 
+         * @param text the data to encrypt / decrypt
+         * @return 
+         */
         public final Maker freeze(String text) {
             if(text==null || text.isEmpty()) {
                 halted=true;
@@ -853,6 +1060,12 @@ public class Ice {
             }
             return freeze(stringToBytes(text));
         }
+        /**
+         * freeze method, adds in the data to encrypt / decrypt
+         * 
+         * @param cbytes the byte data to encrypt / decrypt
+         * @return 
+         */
         public final Maker freeze(byte[] cbytes) {
             if(cbytes==null || cbytes.length==0) {
                 halted=true;
@@ -862,9 +1075,17 @@ public class Ice {
             }
             return this;
         }
+        /**
+         * Pack the data (encryption)
+         * @return 
+         */
         public final Pack pack() {
             return packUnpack(true);
         }
+        /**
+         * Unpack the data (decryption)
+         * @return 
+         */
         public final Pack unpack() {
             return packUnpack(false);
         }
@@ -1050,6 +1271,13 @@ public class Ice {
     CONVERTERS
 
      */
+    
+    /**
+     * Converts bytes to String using the passed charset 
+     * @param bytes the bytes[] to convert to String
+     * @param charset the charset to encode the String with
+     * @return 
+     */
     public static final String bytesToString(byte[] bytes, Charset charset) {
         if(bytes!=null)
             return new String(bytes, charset);
@@ -1079,6 +1307,12 @@ public class Ice {
         return validKeys.contains(secretKeyImp);
     }
 
+    /**
+     * Joins a List<String> into one String, convenience method
+     * @param delimiter
+     * @param elements
+     * @return 
+     */
     public static String join(String delimiter, List<String> elements) {
         StringBuilder joiner = new StringBuilder();
         for (CharSequence cs: elements) {
@@ -1089,6 +1323,13 @@ public class Ice {
         return joiner.toString();
     }
 
+    /**
+     * Write the passed bytes to a file
+     * @param file the file to write to, make sure it exists beforehand
+     * @param bytes the byte[] data to write to the file
+     * @return
+     * @throws IOException 
+     */
     public static boolean writeBytes(File file, byte[] bytes) throws IOException {
         FileOutputStream stream = new FileOutputStream(file.getAbsoluteFile());
         stream.write(bytes);
@@ -1096,6 +1337,12 @@ public class Ice {
     }
 
     private static final String ALPHABET_FULL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz";
+    
+    /**
+     * Create a random Alphanumeric String of defined length (useful for password generation)
+     * @param length
+     * @return 
+     */
     public static final String randomString(final int length) {
         char[] chars = ALPHABET_FULL.toCharArray();
         StringBuilder builder = new StringBuilder();
@@ -1107,6 +1354,11 @@ public class Ice {
         return builder.toString();
     }
     private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+    /**
+     * Convert bytes[] to Hex, useful for iv functions
+     * @param bytes
+     * @return 
+     */
     public static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];
         for ( int j = 0; j < bytes.length; j++ ) {
@@ -1116,20 +1368,40 @@ public class Ice {
         }
         return new String(hexChars);
     }
+    /**
+     * Create a random IV with a length of 16
+     * @return 
+     */
     public static String randomIvHex() {
         return randomIvHex(16);
     }
+    /**
+     * Create a random IV of defined length
+     * @param ivSize
+     * @return 
+     */
     public static String randomIvHex(int ivSize) {
         byte[] iv = new byte[ivSize];
         SecureRandom random = new SecureRandom();
         random.nextBytes(iv);
         return bytesToHex(iv);
     }
+    /**
+     * Creates a random salt with a length of 32
+     * @return 
+     */
     public static String randomSalt() {
-
+        return randomSalt(32);
+    }
+    /**
+     * Creates a random salt of defined length
+     * @param length
+     * @return 
+     */
+    public static String randomSalt(int length) {
         StringBuilder builder = new StringBuilder();
         SecureRandom random = new SecureRandom();
-        for (int i = 0; i < 32; i++) {
+        for (int i = 0; i < length; i++) {
             char c = hexArray[random.nextInt(hexArray.length)];
             builder.append(c);
         }
@@ -1137,9 +1409,11 @@ public class Ice {
     }
 
 
-
-
-
+    /**
+     * Convert a hex String to byte[]
+     * @param str
+     * @return 
+     */
     public static byte[] hex(String str) {
         try {
             return Hex.decode(str);
@@ -1149,6 +1423,11 @@ public class Ice {
         }
     }
 
+    /**
+     * Generate a random RSA key pair for Ice.Pop PGP
+     * @return
+     * @throws Exception 
+     */
     public static KeyPair randomRsaKeyPair() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048, new SecureRandom());
@@ -1173,6 +1452,12 @@ public class Ice {
             return new String(decriptCipher.doFinal(toDecrypt), DEFAULT_CHARSET);
         }
     }
+    /**
+     * convert a private key String back to the private Key pair
+     * @param key64
+     * @return
+     * @throws GeneralSecurityException 
+     */
     public static PrivateKey stringToPrivateKey(String key64) throws GeneralSecurityException {
         byte[] clear = Base64.decode(key64,Base64.DEFAULT);
         PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(clear);
@@ -1182,7 +1467,12 @@ public class Ice {
         return priv;
     }
 
-
+    /**
+     * Convert the public key String back to the public key pair
+     * @param stored
+     * @return
+     * @throws GeneralSecurityException 
+     */
     public static PublicKey stringToPublicKey(String stored) throws GeneralSecurityException {
         byte[] data = Base64.decode(stored,Base64.DEFAULT);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(data);
@@ -1201,7 +1491,12 @@ public class Ice {
         return key64;
     }
 
-
+    /**
+     * Converts the public key to a String to send to the client
+     * @param publ
+     * @return
+     * @throws GeneralSecurityException 
+     */
     public static String publicKeyToString(PublicKey publ) throws GeneralSecurityException {
         KeyFactory fact = KeyFactory.getInstance("RSA");
         X509EncodedKeySpec spec = fact.getKeySpec(publ,
@@ -1293,12 +1588,13 @@ public class Ice {
     }
 
 
-    /*
-    getCharset(String)
-    Probes a String and determines the Charset, see Charset[] charsets for list of available
-    Modified version adapted from:
-    https://www.turro.org/publications/?item=114&page=0
-
+    /**
+     *   getCharset(String)
+     *   Probes a String and determines the Charset, see Charset[] charsets for list of available
+     *   Modified version adapted from:
+     *   https://www.turro.org/publications/?item=114&page=0
+     * @param value
+     * @return 
      */
     public static Charset getCharset(String value) {
         Charset probe = UTF_8;
