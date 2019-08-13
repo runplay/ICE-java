@@ -61,6 +61,7 @@ Pack decrypted = Ice
 <br/>
 <h3>2 - Result pack useful methods</h3>
 <br/>reading the Pack:<br/>
+
 ```bash
 Pack pack = Ice.with.....
 
@@ -74,10 +75,12 @@ pack.getException(); // if an exception was thrown, can be null, also will be nu
 pack.writeFile(File file); // write the bytes to a file
 
 ```
+
 <br/><br/>
 <h3>3 - Detailed use case</h3>
 <br/>
 a more detailed version is in the Flavour:<br/>
+
 ```bash
 
         
@@ -173,6 +176,7 @@ a more detailed version is in the Flavour:<br/>
 <br/>
 <h3>4 - PGP</h3>
 <br/>Ice contains a full PGP implementation (RSA,AES), ICE PGP is not currently compatible with OpenPGP or other PGP imp. (future task)<br/>
+
 ```bash
 
         KeyPair keys = null;
