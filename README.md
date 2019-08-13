@@ -103,14 +103,18 @@ a more detailed version is in the Flavour:<br/>
                 ,256
                 ,1000
                 ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
-                // Task... tasks
+                // Pick... tasks
                 // 
                 // you can combine any tasks in any oder, just do not be silly
                 // so this, although not efficient is ok:
-                // Task.BASE64,Task.ZIP,Task.ENCRYPTION,Task.ZIP,Task.BASE64
+                // Pick.BASE64,Pick.ZIP,Pick.ENCRYPTION,Pick.ZIP,Pick.BASE64
                 // 
                 // but this is silly:
-                // Task.BASE64, Task.BASE64, Task.BASE64, Task.BASE64, Task.BASE64
+                // Pick.BASE64, Pick.BASE64, Pick.BASE64, Pick.BASE64, Pick.BASE64
+		//
+		// Keep the order for both encryption (pack()) and decryption (unpack())
+		// Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+		// the order will be the same, pack runs left to right, unpack runs from right to left.	
         );
         
         Pack encrypted = 
@@ -119,12 +123,23 @@ a more detailed version is in the Flavour:<br/>
                 .block("password",salt) // secretKey is created here
                 .freeze("Text to encrypt, compress and encode") // set the data
                 .pack(); // encryption, compression and encoding performed
-        
+        or
+
+        Maker maker =
+		Ice
+		.with(flavour) // cipher instance and inParameterSpec is created here
+		.block("password",salt) // secretKey is created here
+		.freeze("Text to encrypt, compress and encode") // set the data
+
+	Pack encrypted = 
+        	maker.pack(); // encryption, compression and encoding performed
+
+
         // we want to send this over http so:
         String sendString = encrypted.toStringUrlSafe();
         
         // we want to write the result to a file:
-        // this is the only time you have to worry about catching an exception
+        // this is one of the only times you have to worry about catching an exception
 
         boolean didWrite=false;
         try {
