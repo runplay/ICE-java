@@ -104,7 +104,7 @@ public class TestIce {
         Pack encrypted = 
                 Ice
                 .with(flavour) // cipher instance and inParameterSpec is created here
-                .block("password") // secretKey is created here
+                .block("password",salt) // secretKey is created here
                 .freeze("Text to encrypt, compress and encode") // set the data
                 .pack(); // encryption, compression and encoding performed
         
@@ -136,7 +136,7 @@ public class TestIce {
         Pack decrypted = 
                 Ice
                 .with(flavour)
-                .block("password")
+                .block("password",salt)
                 .freeze(encrypted.toString())
                 .unpack();
         // so the only change is 
@@ -150,8 +150,11 @@ public class TestIce {
         
         byte[] bytesDec = decrypted.toBytes();
         didWrite=false;
+        File f = new File("/tmp/example_file.txt");
+        
         try {
-            didWrite = decrypted.writeFile(new File("/tmp/example_file.txt"));
+            f.createNewFile();
+            didWrite = decrypted.writeFile(f);
         } catch(IOException e){}
         
         
@@ -201,10 +204,7 @@ public class TestIce {
         
         
         
-        // Fast production environments...
-        
-        //String encryptedPgp =Ice.bytesToString(pgp.encrypt(Ice.stringToBytes("message text"), IcePgp.newKeySet()));
-        //String decryptedPgp = Ice.bytesToString(pgp.decrypt(Ice.stringToBytes(encryptedPgp), IcePgp.newKeySet() ));
+
 
         
     }
@@ -213,9 +213,7 @@ public class TestIce {
         testIce();
     }
     
-    private static final int threadInstance=1;
-    private static final int threadLoop=1;
-    
+   
     
     public static class TestThread extends Thread {
         private static final int threadAddRandom=10;
@@ -242,41 +240,58 @@ public class TestIce {
             for(int i=0; i<threadLoop; i++) {
                 KeyPair keys = null;
                 try {
-                    keys=Ice.randomRsaKeyPair();
-                } catch(Exception e) {}
-                Ice.Pop pop = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPrivate());
-                Ice.Maker maker = Ice.with(pop, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
-                Ice.Pack pack = maker.freeze("data to encrypt").unpack();
+                    keys=Ice.randomRsaKeyPair(Ice.RSA_KEY_1024);
+                } catch(Exception e) {
+                    System.out.println("enc fail on keypair generation");
+                }
+                
+                if(keys!=null) {
+                    Ice.Pop pop = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPublic());
+                    Ice.Maker maker = Ice.with(pop, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
 
-                Ice.Pack packed=maker
-                        .freeze(message)
-                        .pack();
-                if(packed.isSuccess()) {
-                    countEncryption++;
-                    Ice.Pack unpacked=maker
-                            .freeze(packed.toBytes())
-                            .unpack();
-                    if(unpacked.isSuccess() && unpacked.toString().equals(message)) {
+                    // Ice.publicKeyToString(keys.getPublic());
+                    // use the above to convert the Public key to string
+                    
+                    // Ice.stringToPublicKey(publicKeyString);
+                    // use the above to create the Public key from the String
+
+                    Ice.Pack packed=maker
+                            .freeze(message)
+                            .pack();
+                    if(packed.isSuccess()) {
+                        countEncryption++;
                         
-                        countDecryption++;
+                        
+                        
+                        Ice.Pop popServer = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPrivate());
+                        Ice.Maker makerServer = Ice.with(popServer, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
+                        
+                        Ice.Pack unpacked=makerServer
+                                .freeze(packed.toBytes())
+                                .unpack();
+                        if(unpacked.isSuccess() && unpacked.toString().equals(message)) {
+
+                            countDecryption++;
+                        } else {
+                            countDecryptionFail++;
+                            System.out.println("dec fail: "+packed.toString());
+                            System.out.println("dec fail: "+packed.getMessage());
+                            if(packed.getException()!=null) {
+                                packed.getException().printStackTrace();
+                            }
+                        }
                     } else {
-                        countDecryptionFail++;
-                        System.out.println("dec fail: "+packed.toString());
-                        System.out.println("dec fail: "+packed.getMessage());
+                        System.out.println("enc fail: "+packed.getMessage());
                         if(packed.getException()!=null) {
                             packed.getException().printStackTrace();
                         }
+                        countEncryptionFail++;
                     }
-                } else {
-                    System.out.println("enc fail: "+packed.getMessage());
-                    if(packed.getException()!=null) {
-                        packed.getException().printStackTrace();
-                    }
-                    countEncryptionFail++;
                 }
 
+
             }
-            System.out.println("FINISHED TEST - time(rough): "+((System.currentTimeMillis()-started)/1000)+" - enc: "+countEncryption+", dec: "+countDecryption+", encFail: "+countEncryptionFail+", decFail: "+countDecryptionFail);
+            System.out.println("FINISHED TEST - time(rough): "+((System.currentTimeMillis()-started)/1000D)+" - enc: "+countEncryption+", dec: "+countDecryption+", encFail: "+countEncryptionFail+", decFail: "+countDecryptionFail);
         }
     }
     public static int getRandom(int min, int max) {
@@ -285,6 +300,8 @@ public class TestIce {
             rand=max;
         return rand;
     }
+    private static final int threadInstance=1;
+    private static final int threadLoop=1;
     public static void testIce() {
         System.out.println("TEST PACK\n\n*****************************************************\nSTART:\n");
         for(int i=0; i<threadInstance; i++) {

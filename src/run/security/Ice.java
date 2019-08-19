@@ -97,7 +97,9 @@ public class Ice {
     public static final Charset US_ASCII= StandardCharsets.US_ASCII;
     public static final Charset ISO_8859_1= StandardCharsets.ISO_8859_1;
     private static Charset DEFAULT_CHARSET=UTF_8;
-
+    public static final int RSA_KEY_1024 = 1024;
+    public static final int RSA_KEY_2048 = 2048;
+    public static final int RSA_KEY_4096 = 4096;
 
 
     // Ciphers and keys
@@ -1283,17 +1285,33 @@ public class Ice {
             return new String(bytes, charset);
         return null;
     }
+    /**
+     * Converts bytes to String using the DEFAULT_CHARSET 
+     * @param bytes the bytes[] to convert to String
+     * @return 
+     */
     public static final String bytesToString(byte[] bytes) {
         if(bytes!=null)
             return new String(bytes, DEFAULT_CHARSET);
         return null;
     }
+    /**
+     * Converts String to bytes using the DEFAULT_CHARSET 
+     * @param value the String to convert to bytes[]
+     * @return 
+     */
     public static final byte[] stringToBytes(String value) {
         if(value!=null)
             return value.getBytes(DEFAULT_CHARSET);
         return null;
 
     }
+    /**
+     * Converts String to bytes using the passed charset
+     * @param value the String to convert to bytes[]
+     * @param charset the charset to encode the String with
+     * @return 
+     */
     public static final byte[] stringToBytes(String value, Charset charset) {
         if(value!=null)
             return value.getBytes(charset);
@@ -1426,14 +1444,22 @@ public class Ice {
     /**
      * Generate a random RSA key pair for Ice.Pop PGP
      * @return
+     * @param RSA_KEY_ the key size to use
+     * @throws Exception 
+     */
+    public static KeyPair randomRsaKeyPair(int RSA_KEY_) throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(RSA_KEY_, new SecureRandom());
+        KeyPair pair = generator.generateKeyPair();
+        return pair;
+    }
+    /**
+     * Generate a random RSA 2058 key pair for Ice.Pop PGP
+     * @return
      * @throws Exception 
      */
     public static KeyPair randomRsaKeyPair() throws Exception {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048, new SecureRandom());
-        KeyPair pair = generator.generateKeyPair();
-
-        return pair;
+        return randomRsaKeyPair(RSA_KEY_2048);
     }
     private static class IceRSA {
         private static byte[] encrypt(byte[] toEncrypt, PublicKey publicKey) throws Exception {

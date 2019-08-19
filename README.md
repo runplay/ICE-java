@@ -196,26 +196,47 @@ a more detailed version is in the Flavour:<br/>
 
         KeyPair keys = null;
         try {
-            keys=Ice.randomRsaKeyPair();
-        } catch(Exception e) {}
+            keys=Ice.randomRsaKeyPair(Ice.RSA_KEY_1024);
+        } catch(Exception e) {
+            System.out.println("enc fail on keypair generation");
+        }
+        
+        if(keys!=null) {
+            Ice.Pop pop = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPublic());
+            Ice.Maker maker = Ice.with(pop, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
 
-        Ice.Pop pop = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPrivate());
-        Ice.Maker maker = Ice.with(pop, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
-        Ice.Pack pack = maker.freeze("data to encrypt").unpack();
+            // Ice.publicKeyToString(keys.getPublic());
+            // use the above to convert the Public key to string
+            
+            // Ice.stringToPublicKey(publicKeyString);
+            // use the above to create the Public key from the String
 
-        Ice.Pack packed=maker
-                .freeze(message)
-                .pack();
-
-        if(packed.isSuccess()) {
-
-            Ice.Pack unpacked=maker
-                    .freeze(packed.toBytes())
-                    .unpack();
-
-            if(unpacked.isSuccess() && unpacked.toString().equals(message)) {
+            Ice.Pack packed=maker
+                    .freeze(message)
+                    .pack();
+            if(packed.isSuccess()) {
                 
-                System.out.println("Ice PGP successfully Encrypted and decrypted");
+                Ice.Pop popServer = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPrivate());
+                Ice.Maker makerServer = Ice.with(popServer, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
+                
+                Ice.Pack unpacked=makerServer
+                        .freeze(packed.toBytes())
+                        .unpack();
+                if(unpacked.isSuccess() && unpacked.toString().equals(message)) {
+
+                    System.out.println("Success Ice PGP encryption and decrytion worked");
+                } else {
+                    System.out.println("dec fail: "+packed.toString());
+                    System.out.println("dec fail: "+packed.getMessage());
+                    if(packed.getException()!=null) {
+                        packed.getException().printStackTrace();
+                    }
+                }
+            } else {
+                System.out.println("enc fail: "+packed.getMessage());
+                if(packed.getException()!=null) {
+                    packed.getException().printStackTrace();
+                }
             }
         }
 
@@ -225,7 +246,8 @@ a more detailed version is in the Flavour:<br/>
 <br/>to encrypt:<br/>
 
 ```bash
-coming soon
+
+example code coming soon
 
 ```
 
@@ -233,12 +255,13 @@ coming soon
 <br/>to encrypt:<br/>
 
 ```bash
-coming soon
+example coming soon
 
 ```
 
 <br/>
 <h2>Updates</h2>
+v1.1.023 - Small tweaks and opened up RSA key size choice (1024,2048,4096)<br/>
 v1.1.022 - Added documentation and comments for developers ease<br/>
 v1.1.021 - First open release<br/>
 <br/><br/>
