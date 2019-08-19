@@ -1211,9 +1211,9 @@ public class Ice {
                             case ZIP:
                                 try {
                                     if(doPack) {
-                                        cbytes = ZipFile.zipBytes(cbytes,"b");
+                                        cbytes = Zip.zipBytes(cbytes,"b");
                                     } else {
-                                        cbytes = ZipFile.unzipBytes(cbytes,"b");
+                                        cbytes = Zip.unzipBytes(cbytes,"b");
                                     }
                                 } catch (IOException e) {
                                     halted=true;
@@ -1530,7 +1530,7 @@ public class Ice {
         return bytesToString(Base64.encode(spec.getEncoded(),Base64.DEFAULT));
     }
 
-    public static class ZipFile {
+    public static class Zip {
         public static byte[] zipBytes(byte[] input, String filename) throws IOException {
             if(filename==null)
                 throw new IOException("Zip filename cannot be null");
@@ -1565,7 +1565,7 @@ public class Ice {
             return buffer;
         }
     }
-    public static class GzipUtil {
+    public static class Gzip {
 
         public static byte[] zip(final String str) {
             if ((str == null) || (str.length() == 0)) {

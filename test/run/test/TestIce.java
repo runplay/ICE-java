@@ -185,7 +185,7 @@ public class TestIce {
         
         try {
             
-            byte[] zippedBytes=Ice.ZipFile.zipBytes(zip,"filname.txt");
+            byte[] zippedBytes=Ice.Zip.zipBytes(zip,"filname.txt");
             
             // 
             // If you want to write the data to disk
@@ -194,7 +194,7 @@ public class TestIce {
             //f.createNewFile();
             //Ice.writeBytes(f, zipped);
             
-            byte[] unzipped=Ice.ZipFile.unzipBytes(zippedBytes,"filename.txt");
+            byte[] unzipped=Ice.Zip.unzipBytes(zippedBytes,"filename.txt");
             
         } catch (IOException ex) {
             Logger.getLogger(TestIce.class.getName()).log(Level.SEVERE, null, ex);
