@@ -316,7 +316,7 @@ a more detailed version is in the Flavour:<br/>
 Ive Tray and Cubes are still under development, included in the current release is a basic version, but plenty to do.
 It is not recommended to use.
 
-example coming soon once ready.
+example coming soon once ready...
 
 
 ```
