@@ -23,9 +23,96 @@ import run.security.Ice.Pick;
  * @author coops
  */
 public class TestIce {
-    public static void packTestQuick() {
+    
+    
+    public static void main(String[] args) {
+        
+        iceQuickTest();
+        iceTestDetailed();
+        iceTestPGP();
+        iceAsyncTest();
+    }
+    
+    
+    private static final int threadInstance=1;
+    private static final int threadLoop=1;
+    
+    public static void iceTestPGP() {
+        System.out.println("\n\nTEST ICE PGP\n\n*****************************************************\nSTART:\n");
+        for(int i=0; i<threadInstance; i++) {
+            new TestThread().run();
+        }
+
+    }
+    
+
+    public static void iceAsyncTest() {
+        System.out.println("\n\nTEST ICE ASYNC\n\n*****************************************************\nSTART:\n");
+        String iv=Ice.randomIvHex();
+        String salt=Ice.randomSalt();
+        String password = Ice.randomString(32);
+        
+        Flavour flavour = new Flavour(
+                Ice.CIPHER_AES_CBC_PKCS5Padding
+                ,Ice.KEY_PBKDF2WithHmacSHA1
+                ,iv
+                ,256
+                ,500000
+                ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+        );
+        
+        Maker maker = Ice.with(flavour);
         
         
+        
+        maker.freezePack("Encrypt his text with it's own seperate thread using high iterations so it takes a long time"
+                , password
+                , salt
+                , new Ice.CoolPack() {
+                    @Override
+                    public void go(Pack pack) {
+                        if(pack.isSuccess()) {
+                            System.out.println("Ice Async test Encrypt success: "+pack.toString());
+                            
+                            // now decrypt, usually you would not call this in the Coolpack, but for the test it should be so.
+
+                            System.out.println("Ice unpack");
+                            maker.freezeUnpack(pack.toString()
+                                    , password
+                                    , salt
+                                    , new Ice.CoolPack() {
+                                        @Override
+                                        public void go(Pack pack) {
+                                            if(pack.isSuccess()) {
+                                                System.out.println("Ice Async Decrypt test success: "+pack.toString());
+
+                                            } else {
+                                                System.out.println("Ice Async Decrypt test failed: "+pack.getMessage());
+                                                if(pack.getException()!=null) {
+                                                    pack.getException().printStackTrace();
+                                                }
+                                            }
+                                        }
+                                    });
+                            
+                            
+                            
+                        } else {
+                            System.out.println("Ice Async Encrypt test failed: "+pack.getMessage());
+                            if(pack.getException()!=null) {
+                                pack.getException().printStackTrace();
+                            }
+                        }
+                    }
+                });
+        
+        
+        System.out.println("Ice end of method, Async data will appear once completed\n\n");
+    }
+    
+    public static void iceQuickTest() {
+        
+        System.out.println("\n\nTEST ICE QUICK\n\n*****************************************************\nSTART:\n");
         String originalString="Text to Encrypt, compress, encode";
         byte[] originalBytes = Ice.stringToBytes(originalString);
         
@@ -70,8 +157,9 @@ public class TestIce {
         
         
     }
-    public static void chillTestDetailed() {      
+    public static void iceTestDetailed() {      
         
+        System.out.println("\n\nTEST ICE DETAILED\n\n*****************************************************\nSTART:\n");
         String iv=Ice.randomIvHex();
         String salt=Ice.randomSalt();
 
@@ -208,11 +296,7 @@ public class TestIce {
 
         
     }
-    
-    public static void main(String[] args) {
-        testIce();
-    }
-    
+
    
     
     public static class TestThread extends Thread {
@@ -300,17 +384,5 @@ public class TestIce {
             rand=max;
         return rand;
     }
-    private static final int threadInstance=1;
-    private static final int threadLoop=1;
-    public static void testIce() {
-        System.out.println("TEST PACK\n\n*****************************************************\nSTART:\n");
-        for(int i=0; i<threadInstance; i++) {
 
-            new TestThread().run();
-
-
-        }
-
-
-    }
 }

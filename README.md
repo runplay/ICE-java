@@ -18,7 +18,7 @@ Built to be fast to code and easy to debug, you can be done with one line of cod
 
 Full of features<br/>
 ✅ Encrypt (AES), Compress (Zip & LZ77), Encode (B64) easily with one line of code<br/>
-✅ PGP inculded<br/>
+✅ PGP - Pretty Good Privacy<br/>
 ✅ Includes a Base64 encoder (courtesy of Google) 🌿<br/>
 ✅ Includes on the fly Zip compression (in memory) 🌿<br/>
 ✅  Full access to tayloring the encryption methods. 🌿<br/>
@@ -32,7 +32,7 @@ Appendix:<br/>
 3 - Detailed use<br/>
 4 - PGP use<br/>
 5 - Async use<br/>
-6 - Extra features<br/>
+6 - Ice Tray & Cubes (Pooling for Server implementations)<br/>
 <br/>
 Simplest method are not recommend as it uses defaults for Flavour, iv and salt, however depicts well the ease of use.
 <br/>
@@ -247,15 +247,77 @@ a more detailed version is in the Flavour:<br/>
 
 ```bash
 
-example code coming soon
+        String iv=Ice.randomIvHex();
+        String salt=Ice.randomSalt();
+        String password = Ice.randomString(32);
+        
+        Flavour flavour = new Flavour(
+                Ice.CIPHER_AES_CBC_PKCS5Padding
+                ,Ice.KEY_PBKDF2WithHmacSHA1
+                ,iv
+                ,256
+                ,500000
+                ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+        );
+        
+        Maker maker = Ice.with(flavour);
+        
+        
+        
+        maker.freezePack("Encrypt his text with it's own seperate thread using high iterations so it takes a long time"
+                , password
+                , salt
+                , new Ice.CoolPack() {
+                    @Override
+                    public void go(Pack pack) {
+                        if(pack.isSuccess()) {
+                            System.out.println("Ice Async test Encrypt success: "+pack.toString());
+                            
+                            // now decrypt, usually you would not call this in the Coolpack, but for the test it should be so.
+
+                            System.out.println("Ice unpack");
+                            maker.freezeUnpack(pack.toString()
+                                    , password
+                                    , salt
+                                    , new Ice.CoolPack() {
+                                        @Override
+                                        public void go(Pack pack) {
+                                            if(pack.isSuccess()) {
+                                                System.out.println("Ice Async Decrypt test success: "+pack.toString());
+
+                                            } else {
+                                                System.out.println("Ice Async Decrypt test failed: "+pack.getMessage());
+                                                if(pack.getException()!=null) {
+                                                    pack.getException().printStackTrace();
+                                                }
+                                            }
+                                        }
+                                    });
+                            
+                            
+                            
+                        } else {
+                            System.out.println("Ice Async Encrypt test failed: "+pack.getMessage());
+                            if(pack.getException()!=null) {
+                                pack.getException().printStackTrace();
+                            }
+                        }
+                    }
+                });
+
 
 ```
 
-<h3>6 - Extra features</h3>
-<br/>to encrypt:<br/>
+<h3>6 - Ice Tray & Cubes</h3>
+<br/>Ice pooling for Server implementations<br/>
 
 ```bash
-example coming soon
+
+Ive Tray and Cubes are still under development, included in the current release is a basic version, but plenty to do.
+It is not recommended to use.
+
+example coming soon once ready.
+
 
 ```
 
