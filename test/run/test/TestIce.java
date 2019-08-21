@@ -11,7 +11,6 @@ import java.security.KeyPair;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import run.security.Ice;
-import run.security.Ice;
 import run.security.Ice.Flavour;
 import run.security.Ice.Maker;
 import run.security.Ice.Pack;
@@ -27,22 +26,24 @@ public class TestIce {
     
     public static void main(String[] args) {
         
-        iceQuickTest();
-        iceTestDetailed();
+        //iceQuickTest();
+        //iceTestDetailed();
         iceTestPGP();
-        iceAsyncTest();
+        //iceAsyncTest();
     }
     
     
-    private static final int threadInstance=1;
-    private static final int threadLoop=1;
+    
+    
+    
+    private static final int THREAD_INSTANCE=1;
+    private static final int THREAD_LOOP=1;
     
     public static void iceTestPGP() {
         System.out.println("\n\nTEST ICE PGP\n\n*****************************************************\nSTART:\n");
-        for(int i=0; i<threadInstance; i++) {
-            new TestThread().run();
+        for(int i=0; i<THREAD_INSTANCE; i++) {
+            new TestThread().start();
         }
-
     }
     
 
@@ -74,7 +75,7 @@ public class TestIce {
                         if(pack.isSuccess()) {
                             System.out.println("Ice Async test Encrypt success: "+pack.toString());
                             
-                            // now decrypt, usually you would not call this in the Coolpack, but for the test it should be so.
+                            // now decrypt, usually you would not call this in the Coolpack as it is a seperate process, but for the test it should be so.
 
                             System.out.println("Ice unpack");
                             maker.freezeUnpack(pack.toString()
@@ -113,7 +114,7 @@ public class TestIce {
     public static void iceQuickTest() {
         
         System.out.println("\n\nTEST ICE QUICK\n\n*****************************************************\nSTART:\n");
-        String originalString="Text to Encrypt, compress, encode";
+        String originalString="Text to Encrypt with a basic Flavour that uses all defaults.";
         byte[] originalBytes = Ice.stringToBytes(originalString);
         
         // Encrypt bytes or string
@@ -162,6 +163,7 @@ public class TestIce {
         System.out.println("\n\nTEST ICE DETAILED\n\n*****************************************************\nSTART:\n");
         String iv=Ice.randomIvHex();
         String salt=Ice.randomSalt();
+        String messageToEncrypt="Text to encrypt, compress and encode";
 
         // Ice with AES CBC PKCS5, PBKDF2 key, 256 key length, 1000 iterations
         //
@@ -172,6 +174,7 @@ public class TestIce {
         // Base64 encoded
         //
         //
+        /*
         Flavour flavour = new Flavour(
                 Ice.CIPHER_AES_CBC_PKCS5Padding
                 ,Ice.KEY_PBKDF2WithHmacSHA1
@@ -189,13 +192,38 @@ public class TestIce {
                 // Task.BASE64, Task.BASE64, Task.BASE64, Task.BASE64, Task.BASE64
         );
         
+        Flavour flavour = new Flavour(
+                Ice.CIPHER_AES_GCM_NoPadding
+                ,Ice.KEY_PBKDF2WithHmacSHA1
+                ,iv
+                ,256
+                ,1000
+                ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+        );
+        
+        */
+        Flavour flavour = new Flavour(
+                Ice.CIPHER_AES_GCM_PKCS5Padding
+                ,Ice.KEY_PBKDF2WithHmacSHA1
+                ,iv
+                ,256
+                ,1000
+                ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+        );
         Pack encrypted = 
                 Ice
                 .with(flavour) // cipher instance and inParameterSpec is created here
                 .block("password",salt) // secretKey is created here
-                .freeze("Text to encrypt, compress and encode") // set the data
+                .freeze(messageToEncrypt) // set the data
                 .pack(); // encryption, compression and encoding performed
-        
+        if(encrypted.isSuccess()) {
+            System.out.println("Detailed test Encrypted Success");
+        } else {
+            System.out.println("Detailed test Encrypted Failed: "+encrypted.getMessage());
+            if(encrypted.getException()!=null) {
+                encrypted.getException().printStackTrace();
+            }
+        }
         // we want to send this over http so:
         String sendString = encrypted.toStringUrlSafe();
         
@@ -227,6 +255,19 @@ public class TestIce {
                 .block("password",salt)
                 .freeze(encrypted.toString())
                 .unpack();
+        if(decrypted.isSuccess()) {
+            System.out.println("Detailed test decrypted Success");
+            if(messageToEncrypt.equals(decrypted.toString())) {
+                System.out.println("Detailed test decrypted equals test confirmed Good data");
+            } else {
+                System.out.println("Detailed test decrypted equals test Failed bad data");
+            }
+        } else {
+            System.out.println("Detailed test decrypted Failed: "+decrypted.getMessage());
+            if(decrypted.getException()!=null) {
+                decrypted.getException().printStackTrace();
+            }
+        }
         // so the only change is 
         // .pack()
         // .unpack()
@@ -321,7 +362,7 @@ public class TestIce {
         @Override
         public void run() {
             long started=System.currentTimeMillis();
-            for(int i=0; i<threadLoop; i++) {
+            for(int i=0; i<THREAD_LOOP; i++) {
                 KeyPair keys = null;
                 try {
                     keys=Ice.randomRsaKeyPair(Ice.RSA_KEY_1024);

@@ -64,6 +64,8 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.GCMParameterSpec;
+
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -110,11 +112,14 @@ public class Ice {
     public static final String CIPHER_AES_CBC_PKCS7Padding= "AES/CBC/PKCS7Padding";
     public static final String CIPHER_AES_OFB_NoPadding= "AES/OFB/NoPadding";
     public static final String CIPHER_AES_CFB_NoPadding= "AES/CFB/NoPadding";
-    private static final String DEFAULT_CIPHER=CIPHER_AES_CBC_PKCS5Padding;
+    public static final String CIPHER_AES_GCM_NoPadding= "AES/GCM/NoPadding";
+    public static final String CIPHER_AES_GCM_PKCS5Padding= "AES/GCM/PKCS5Padding";
+    private static final String DEFAULT_CIPHER=CIPHER_AES_GCM_PKCS5Padding;
     private static final String DEFAULT_ALGORITHM="AES";
 
     private static final List<String> validCiphers=new ArrayList<>();
     static {
+        validCiphers.add(CIPHER_AES_GCM_NoPadding); validCiphers.add(CIPHER_AES_GCM_PKCS5Padding);
         validCiphers.add(CIPHER_AES_CBC_PKCS5Padding); validCiphers.add(CIPHER_AES_CBC_PKCS7Padding);
         validCiphers.add(CIPHER_AES_ECB_PKCS7Padding); validCiphers.add(CIPHER_AES_OFB_NoPadding);
         validCiphers.add(CIPHER_AES_CFB_NoPadding);
@@ -667,7 +672,7 @@ public class Ice {
          * @param tasks list... of the Ice.Pick tasks to perform.
          */
         public Flavour(String ivHex, Pick... tasks) {
-            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
+            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA256,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(tasks);
         }
         /**
@@ -676,7 +681,7 @@ public class Ice {
          * @param tasks list... of the Ice.Pick tasks to perform.
          */
         public Flavour(Pick... tasks) {
-            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,DEFAULT_IV_HEX,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
+            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA256,DEFAULT_IV_HEX,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(tasks);
         }
         /**
@@ -685,7 +690,7 @@ public class Ice {
          * @param ivHex The IV to use with the encryption
          */
         public Flavour(String ivHex) {
-            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
+            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA256,ivHex,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(Pick.ENCRYPTION);
         }
         /**
@@ -693,7 +698,7 @@ public class Ice {
          * Uses all defaults
          */
         public Flavour() {
-            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA1,DEFAULT_IV_HEX,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
+            this(DEFAULT_CIPHER,KEY_PBKDF2WithHmacSHA256,DEFAULT_IV_HEX,DEFAULT_KEY_LENGTH,DEFAULT_ITERATIONS);
             addTasks(Pick.ENCRYPTION);
         }
         private void addTasks(Pick... tasks) {
@@ -702,6 +707,12 @@ public class Ice {
                     this.tasks.add(task);
                 }
             }
+        }
+        public boolean isGCM() {
+            if(CIPHER_AES_GCM_NoPadding.equals(cipher) || CIPHER_AES_GCM_PKCS5Padding.equals(cipher)) {
+                return true;
+            }
+            return false;
         }
     }
 
@@ -764,6 +775,7 @@ public class Ice {
         private Cipher cipher;
         private SecretKey skey;
         private IvParameterSpec ivParameterSpec;
+        private GCMParameterSpec gcmParameterSpec;
 
         private boolean halted=false;
         private String message;
@@ -810,7 +822,11 @@ public class Ice {
             preFreeze();
             if(!halted) {
                 try {
-                    cipher.init(lockedMode, skey, ivParameterSpec);
+                    if(gcmParameterSpec!=null) {
+                        cipher.init(lockedMode, skey, gcmParameterSpec);
+                    } else {
+                        cipher.init(lockedMode, skey, ivParameterSpec);
+                    }
                     return true;
                 } catch (InvalidAlgorithmParameterException e) {
                     halted = true;
@@ -1015,7 +1031,11 @@ public class Ice {
         }
         private void preDrip() {
             byte[] iv = hex(flavour.iv);
-            ivParameterSpec = new IvParameterSpec(iv);
+            if(flavour.isGCM()) {
+                gcmParameterSpec = new GCMParameterSpec(128, iv);
+            } else {
+                ivParameterSpec = new IvParameterSpec(iv);
+            }
         }
         private void preFreeze() {
             if(flavour.isAes) {
@@ -1132,7 +1152,11 @@ public class Ice {
                                 if(flavour.isAes) {
                                     try {
                                         if(lockedMode==MODE_UNLOCKED) {
-                                            cipher.init(encMode, skey, ivParameterSpec);
+                                            if(gcmParameterSpec!=null) {
+                                                cipher.init(encMode, skey, gcmParameterSpec);
+                                            } else {
+                                                cipher.init(encMode, skey, ivParameterSpec);
+                                            }
                                         }
                                         cbytes = cipher.doFinal(cbytes);
                                     } catch (IllegalBlockSizeException e) {
