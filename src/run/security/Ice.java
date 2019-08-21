@@ -126,12 +126,16 @@ public class Ice {
     }
 
     // Secret Key
-    public static final String KEY_PBKDF2WithHmacSHA1="PBKDF2WithHmacSHA1";
+    /**
+     *  SHA1 has been deprecated due to its security vulnerabilities, All major SSL certificate issuers now use SHA256 which is more secure and trustworthy. 
+     *  SHA1 is only included in Ice for legacy reasons 
+     */
+    public static final String KEY_PBKDF2WithHmacSHA1_DEPRECIATED="PBKDF2WithHmacSHA1";
     public static final String KEY_PBKDF2WithHmacSHA256="PBKDF2WithHmacSHA256";
     public static final String KEY_PBKDF2WithHmacSHA512="PBKDF2WithHmacSHA512";
     private static final List<String> validKeys=new ArrayList<>();
     static {
-        validKeys.add(KEY_PBKDF2WithHmacSHA1);
+        validKeys.add(KEY_PBKDF2WithHmacSHA1_DEPRECIATED);
         validKeys.add(KEY_PBKDF2WithHmacSHA256);
         validKeys.add(KEY_PBKDF2WithHmacSHA512);
     }

@@ -97,8 +97,8 @@ a more detailed version is in the Flavour:<br/>
         //
         //
         Flavour flavour = new Flavour(
-                Ice.CIPHER_AES_CBC_PKCS5Padding
-                ,Ice.KEY_PBKDF2WithHmacSHA1
+                Ice.CIPHER_AES_GCM_PKCS5Padding
+                ,Ice.KEY_PBKDF2WithHmacSHA256
                 ,iv
                 ,256
                 ,1000
@@ -252,8 +252,8 @@ a more detailed version is in the Flavour:<br/>
         String password = Ice.randomString(32);
         
         Flavour flavour = new Flavour(
-                Ice.CIPHER_AES_CBC_PKCS5Padding
-                ,Ice.KEY_PBKDF2WithHmacSHA1
+                Ice.CIPHER_AES_GCM_PKCS5Padding
+                ,Ice.KEY_PBKDF2WithHmacSHA256
                 ,iv
                 ,256
                 ,500000
@@ -314,7 +314,8 @@ a more detailed version is in the Flavour:<br/>
 ```bash
 
 Ive Tray and Cubes are still under development, included in the current release is a basic version, but plenty to do.
-It is not recommended to use.
+
+It is not recommended to use !
 
 example coming soon once ready...
 
@@ -323,6 +324,7 @@ example coming soon once ready...
 
 <br/>
 <h2>Updates</h2>
+v1.1.024 - Defaults now set to the security versions AES-GCM, SHA256, Test class expanded.<br/>
 v1.1.023 - Small tweaks and opened up RSA key size choice (1024,2048,4096)<br/>
 v1.1.022 - Added documentation and comments for developers ease<br/>
 v1.1.021 - First open release<br/>

@@ -55,7 +55,7 @@ public class TestIce {
         
         Flavour flavour = new Flavour(
                 Ice.CIPHER_AES_CBC_PKCS5Padding
-                ,Ice.KEY_PBKDF2WithHmacSHA1
+                ,Ice.KEY_PBKDF2WithHmacSHA256
                 ,iv
                 ,256
                 ,500000
@@ -204,7 +204,7 @@ public class TestIce {
         */
         Flavour flavour = new Flavour(
                 Ice.CIPHER_AES_GCM_PKCS5Padding
-                ,Ice.KEY_PBKDF2WithHmacSHA1
+                ,Ice.KEY_PBKDF2WithHmacSHA256
                 ,iv
                 ,256
                 ,1000
