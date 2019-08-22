@@ -8,6 +8,8 @@ package run.test;
 import java.io.File;
 import java.io.IOException;
 import java.security.KeyPair;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import run.security.Ice;
@@ -26,26 +28,67 @@ public class TestIce {
     
     public static void main(String[] args) {
         
-        //iceQuickTest();
-        //iceTestDetailed();
+        iceQuickTest();
+        iceTestDetailed();
         iceTestPGP();
         //iceAsyncTest();
+        //iceTestTray();
     }
     
-    
-    
-    
-    
-    private static final int THREAD_INSTANCE=1;
-    private static final int THREAD_LOOP=1;
     
     public static void iceTestPGP() {
         System.out.println("\n\nTEST ICE PGP\n\n*****************************************************\nSTART:\n");
-        for(int i=0; i<THREAD_INSTANCE; i++) {
-            new TestThread().start();
+        KeyPair keys = null;
+        try {
+            keys=Ice.randomRsaKeyPair(Ice.RSA_KEY_1024);
+        } catch(Exception e) {
+            System.out.println("fail on keypair generation");
+        }
+
+        String message=Ice.randomString(300);
+        if(keys!=null) {
+            Ice.Pop pop = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPublic());
+            Ice.Maker maker = Ice.with(pop, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
+
+            // Ice.publicKeyToString(keys.getPublic());
+            // use the above to convert the Public key to string
+
+            // Ice.stringToPublicKey(publicKeyString);
+            // use the above to create the Public key from the String
+
+            Ice.Pack packed=maker
+                    .freeze(message)
+                    .pack();
+            if(packed.isSuccess()) {
+
+
+
+                Ice.Pop popServer = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPrivate());
+                Ice.Maker makerServer = Ice.with(popServer, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
+
+                Ice.Pack unpacked=makerServer
+                        .freeze(packed.toBytes())
+                        .unpack();
+                if(unpacked.isSuccess()) {
+                    System.out.println("Ice PGP test success");
+                    if(unpacked.toString().equals(message)) {
+                        System.out.println("Ice PGP test decrypted equals test confirmed Good data");
+                    }
+                } else {
+                    System.out.println("dec fail: "+packed.toString());
+                    System.out.println("dec fail: "+packed.getMessage());
+                    if(packed.getException()!=null) {
+                        packed.getException().printStackTrace();
+                    }
+                }
+            } else {
+                System.out.println("enc fail: "+packed.getMessage());
+                if(packed.getException()!=null) {
+                    packed.getException().printStackTrace();
+                }
+            }
         }
     }
-    
 
     public static void iceAsyncTest() {
         System.out.println("\n\nTEST ICE ASYNC\n\n*****************************************************\nSTART:\n");
@@ -338,92 +381,44 @@ public class TestIce {
         
     }
 
-   
+    /*
+    private static final int THREAD_INSTANCE=10;
+    private static final int THREAD_LOOP=20;
+    private static final int TRAY_INSTANCES=2;
+    */
+
     
-    public static class TestThread extends Thread {
-        private static final int threadAddRandom=10;
-        
-        private String salt;
-        private String iv;
-        private String password;
-        private String message;
-        private int countEncryption=0;
-        private int countDecryption=0;
-        private int countEncryptionFail=0;
-        private int countDecryptionFail=0;
-        
-        public TestThread() {
-            salt=Ice.randomSalt();
-            password=Ice.randomString(60);
-            iv=Ice.randomIvHex();
-            message=Ice.randomString(300);
-        }
-        
-        @Override
-        public void run() {
-            long started=System.currentTimeMillis();
-            for(int i=0; i<THREAD_LOOP; i++) {
-                KeyPair keys = null;
-                try {
-                    keys=Ice.randomRsaKeyPair(Ice.RSA_KEY_1024);
-                } catch(Exception e) {
-                    System.out.println("enc fail on keypair generation");
+    private static final int THREAD_INSTANCE=5;
+    private static final int TRAY_INSTANCES=2;
+    public static void iceTestTray() {
+
+        System.out.println("\n\nTEST ICE TRAY - thread runner\n\n*****************************************************\nSTART:\n");
+        for(int t=0; t<TRAY_INSTANCES; t++) {
+            String iv=Ice.randomIvHex();
+            Flavour flavour = new Flavour(
+                    Ice.CIPHER_AES_GCM_PKCS5Padding
+                    ,Ice.KEY_PBKDF2WithHmacSHA256
+                    ,iv
+                    ,256
+                    ,5000
+                    ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+            );
+
+            Ice.Maker maker = Ice.with(flavour);
+
+            try {
+                Ice.Tray.open(t, maker, 2,false);
+                for(int ti=0; ti<THREAD_INSTANCE; ti++) {
+                    TestTrayRunner tmp=new TestTrayRunner(t,ti);
+                    tmp.start();
                 }
-                
-                if(keys!=null) {
-                    Ice.Pop pop = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPublic());
-                    Ice.Maker maker = Ice.with(pop, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
-
-                    // Ice.publicKeyToString(keys.getPublic());
-                    // use the above to convert the Public key to string
-                    
-                    // Ice.stringToPublicKey(publicKeyString);
-                    // use the above to create the Public key from the String
-
-                    Ice.Pack packed=maker
-                            .freeze(message)
-                            .pack();
-                    if(packed.isSuccess()) {
-                        countEncryption++;
-                        
-                        
-                        
-                        Ice.Pop popServer = new Ice.Pop(new Ice.Flavour(Ice.Pick.ENCRYPTION), keys.getPrivate());
-                        Ice.Maker makerServer = Ice.with(popServer, Ice.Pick.ZIP, Ice.Pick.ENCRYPTION, Ice.Pick.BASE64);
-                        
-                        Ice.Pack unpacked=makerServer
-                                .freeze(packed.toBytes())
-                                .unpack();
-                        if(unpacked.isSuccess() && unpacked.toString().equals(message)) {
-
-                            countDecryption++;
-                        } else {
-                            countDecryptionFail++;
-                            System.out.println("dec fail: "+packed.toString());
-                            System.out.println("dec fail: "+packed.getMessage());
-                            if(packed.getException()!=null) {
-                                packed.getException().printStackTrace();
-                            }
-                        }
-                    } else {
-                        System.out.println("enc fail: "+packed.getMessage());
-                        if(packed.getException()!=null) {
-                            packed.getException().printStackTrace();
-                        }
-                        countEncryptionFail++;
-                    }
-                }
-
-
+            } catch (Ice.Tray.InvalidTrayException ex) {
+                ex.printStackTrace();
             }
-            System.out.println("FINISHED TEST - time(rough): "+((System.currentTimeMillis()-started)/1000D)+" - enc: "+countEncryption+", dec: "+countDecryption+", encFail: "+countEncryptionFail+", decFail: "+countDecryptionFail);
+
         }
+
     }
-    public static int getRandom(int min, int max) {
-        int rand = Double.valueOf(((max+1-min)*Math.random())+min).intValue();
-        if(rand>max)
-            rand=max;
-        return rand;
-    }
+
 
 }

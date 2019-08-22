@@ -6,15 +6,14 @@ package run.security;
  *     Ice Pack
  *     Inclusive Compression Encryption Pack
  *
- *     Utility for encoding, compressing (and encoding) of byte[] data or Strings... all Inclusive
- *
+ *     Utility for encrypting, encoding and compressing of byte[] data or Strings... all Inclusive
+ *     by: RUNPLAY LTD
  *
  *
  */
 
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -46,10 +45,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -206,12 +207,14 @@ public class Ice {
 
     Ice.Tray
     The tray is for Server side implementations.
+    Provides pooling for Ice.Makers
+    Each try created holds Ice.Cube's use the cubes to process the data
+    once finished with a Ice.Cube, always call cube.release(); to put back into the pool.
     
      */
     public static class Tray {
 
         private static final Map<Integer,Shelf> shelfs =new ConcurrentHashMap<>();
-
 
         public static class InvalidTrayException extends Exception {
             public InvalidTrayException(String errorMessage) {
@@ -222,84 +225,286 @@ public class Ice {
         private static class Shelf {
             private final Maker parentMaker;
             private final int id;
-
-            /*
+            
+            private  ArrayBlockingQueue<Maker> makers=new ArrayBlockingQueue(1000);
             
             // Flow monitoring not yet implemented
-            
-            private final int minFlow;
-            private final AtomicLong counter = new AtomicLong(0);
-            private final AtomicInteger flowLive = new AtomicInteger(0);  // montior the per current second flow
-            private final AtomicInteger flowHistory = new AtomicInteger(0); // monitor the average flow over the life of the shelf
-            private final AtomicLong last = new AtomicLong(System.nanoTime()); // last time flow() was called -- using elapsedRealtimeNanos() instead of System.nanoTime()
+            private boolean shutdown=false;
+
+            private final int minCache;
+            private AtomicInteger counter = new AtomicInteger(0);
+            private double avgFlow=0D;
+            private long flowSecond=0;
+            private long flowMinute = 0;  // montior the per current second flow
+            private long flowHour = 0; // monitor the average flow over the life of the shelf
+            private static final int FLOWVAL=59;
+            private List<Long> secondFlow=new ArrayList<>();
+            private List<Long> minuteFlow=new ArrayList<>();
+            private List<Long> hourFlow=new ArrayList<>();
 
             private final Thread flow = new Thread() {
                 @Override
                 public void run() {
-                try {
-                    wait(1000);
-                } catch(Exception e){}
+                    while(true) {
+                        if(shutdown) {
+                            return;
+                        }
+                        flowSecond= counter.getAndSet(0);
+                        secondFlow.add(flowSecond);
+                        avgFlow = (avgFlow+flowSecond)/2D;
+                        if(secondFlow.size()>FLOWVAL) {
+                            flowMinute=flowSum(secondFlow);
+                            minuteFlow.add(flowMinute);
+                            secondFlow.remove(0);
+                            if(minuteFlow.size()>FLOWVAL) {
+                                flowHour=flowSum(minuteFlow);
+                                hourFlow.add(flowHour);
+                                minuteFlow.remove(0);
+                                if(hourFlow.size()>FLOWVAL) {
+                                    hourFlow.remove(0);
+                                    if(hourFlow.size()>23)
+                                        hourFlow.remove(0);
+                                }
+                            }
+                        }
+                        long size=makers.size();
+                        if(size>avgFlow) {
+                            size=size-Double.valueOf(avgFlow).intValue();
+                            if(size>minCache) {
+                                for(int i=0; i<size; i++) {
+                                    makers.poll();
+                                }
+                            }
+                        }
+                        try {
+                            this.wait(999);
+                        } catch(Exception e){}
+                    }
                 }
             };
-            */
-            private SynchronousQueue<Maker> makers=new SynchronousQueue();
-            private Shelf(int id, Maker maker, int minFlow)  {
+            private long flowSum(List<Long> array) {
+                long tally=0;
+                for(Long l: array) {
+                    tally+=l;
+                }
+                return tally;
+            }
+            private Shelf(int id, Maker maker, int minCache, boolean flowMonitor)  {
                 this.parentMaker=maker;
                 this.id=id;
 
-                /*
-            
-                // Flow monitoring not yet implemented
-                // cache no less than 1 second
-                if(minFlow<1) {
-                    this.minFlow=1;
-                } else if(minFlow>60) {
-                    this.minFlow=60;
+                if(minCache<1) {
+                    this.minCache=1;
+                } else if(minCache>60) {
+                    this.minCache=60;
                 } else {
-                    this.minFlow=minFlow;
+                    this.minCache=minCache;
                 }
-                */
+                if(flowMonitor) {
+                    flow.start();
+                }
             }
-
-            public Cube get() {
+            private void destroy() {
+                shutdown=true;
+                flow.interrupt();
+            }
+            private Cube get() {
                 Maker maker = makers.poll();
                 if(maker==null) {
-                    maker = parentMaker.clone();
+                    maker = parentMaker.copy();
+                    maker.preFreeze();
                 }
+                counter.incrementAndGet();
                 return new Cube(this, id, maker);
             }
+            private int size() {
+                return makers.size();
+            }
+            private long cubesPerSecond() {
+                return flowSecond;
+            }
+            private long cubesPerMinute() {
+                return flowMinute;
+            }
+            private long cubesPerHour() {
+                return flowHour;
+            }
+            private List<Long> cubesInMinute() {
+                List<Long> values = new ArrayList();
+                Collections.copy(values,secondFlow);
+                return values;
+            }
+            private List<Long> cubesInHour() {
+                List<Long> values = new ArrayList();
+                Collections.copy(values,minuteFlow);
+                return values;
+            }
+            private List<Long> cubesInDay() {
+                List<Long> values = new ArrayList();
+                Collections.copy(values,hourFlow);
+                return values;
+            }
+        }
+        /**
+         * Creates an new Tray instance, internally called a Shelf
+         * The Tray instance will create a pool of Ice.Cube's for processing the data.
+         * @param trayId The id number of the Tray instance
+         * @param maker The template Ice.Maker that the Cube's are copied from.
+         * @throws InvalidTrayException if the Maker is null or has no Flavour or they Tray instance (id) already exists
+         */
+        public static void open(int trayId, Maker maker) throws InvalidTrayException {
+            open(trayId, maker, 2); // default to keep 2 seconds worth in the pipe.
+        }
+        /**
+         * Creates an new Tray instance, internally called a Shelf
+         * The Tray instance will create a pool of Ice.Cube's for processing the data.
+         * @param trayId The id number of the Tray instance
+         * @param maker The template Ice.Maker that the Cube's are copied from.
+         * @param minCache The minimum cache size of the Ice.Cube's to keep in the Tray
+         * @throws InvalidTrayException  if the Maker is null or has no Flavour or they Tray instance (id) already exists
+         */
+        public static void open(int trayId, Maker maker, int minCache) throws InvalidTrayException {
+            open(trayId, maker, minCache,false);
 
         }
-        public static void open(int trayId, Maker maker) throws InvalidTrayException {
-            open(trayId,maker,2); // default to keep 2 seconds worth in the pipe.
-        }
-        public static void open(int trayId, Maker maker, int minFlowSeconds) throws InvalidTrayException {
+        /**
+         * Creates an new Tray instance, internally called a Shelf
+         * The Tray instance will create a pool of Ice.Cube's for processing the data.
+         * @param trayId The id number of the Tray instance
+         * @param maker The template Ice.Maker that the Cube's are copied from.
+         * @param minCache The minimum cache size of the Ice.Cube's to keep in the Tray
+         * @param flowMonitor keeps flow monitoring information of the Tray for stats.
+         * @throws InvalidTrayException  if the Maker is null or has no Flavour or they Tray instance (id) already exists
+         */
+        public static void open(int trayId, Maker maker, int minCache, boolean flowMonitor) throws InvalidTrayException {
             if(maker==null)
                 throw new InvalidTrayException("Cracked Tray: Maker parameter is null");
             if(maker.flavour==null)
                 throw new InvalidTrayException("Cracked Tray: Maker has no Flavour");
 
             if(shelfs.get(trayId)==null) {
-                shelfs.put(trayId, new Shelf(trayId, maker,minFlowSeconds));
+                
+                shelfs.put(trayId, new Shelf(trayId, maker,minCache,flowMonitor));
+
             } else {
                 throw new InvalidTrayException("Cracked Tray: a Tray with already exists with id: "+trayId);
             }
+            
         }
+        /**
+         * Close down the Tray, this will destroy the Ice.Tray
+         * most likely used on System shutdown procedures.
+         * @param trayId a unique int id for the tray instance
+         */
         public static void close(int trayId) {
             // shutdown routine
-            shelfs.remove(trayId);
+            Shelf s=shelfs.remove(trayId);
+            s.destroy();
         }
+        /**
+         * Get a Ice.Cube from the Tray
+         * ALWAYS call release(); once finished with the Cube.
+         * @param trayId a unique int id for the tray instance
+         * @return a Ice.Cube instance
+         */
         public static final Cube get(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.get();
             return null;
         }
+        /**
+         * Gets the current size of the polled Ice.Cubes
+         * returns -1 if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return the number of Ice.Cubes in the Ice.Tray
+         */
+        public int size(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.size();
+            return -1;
+        }
+        /**
+         * Gets the last (live) cubes used in the past second
+         * returns -1 if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return long value for the latest live Ice.Cubes processed per second.
+         */
+        public long cubesPerSecond(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.cubesPerSecond();
+            return -1;
+        }
+        /**
+         * Gets the last (live) cubes used in the past minute
+         * returns -1 if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return  long value for the latest live Ice.Cubes processed per minute.
+         */
+        public long cubesPerMinute(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.cubesPerMinute();
+            return -1;
+        }
+        /**
+         * Gets the last (live) cubes used in the past hour
+         * returns -1 if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return  long value for the latest live Ice.Cubes processed per hour.
+         */
+        public long cubesPerHour(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.cubesPerHour();
+            return -1;
+        }
+        
+        /**
+         * Gets the last 60 seconds of cubes used
+         * returns null if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return a List of length 1-60 for Ice.Cubes processed per second over the past minute
+         */
+        public List<Long> cubesInMinute(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.cubesInMinute();
+            return null;
+        }
+        /**
+         * Gets the last 60 minutes of cubes used
+         * returns null if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return  a List of length 0-60 for Ice.Cubes processed per minute over the past hour
+         */
+        public List<Long> cubesInHour(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.cubesInHour();
+            return null;
+        }
+        /**
+         * Gets the last 24 hours of cubes used
+         * returns null if the tray does not exist
+         * @param trayId a unique int id for the tray instance
+         * @return  a List of length 0-24 for Ice.Cubes processed per hour over the past Day
+         */
+        public List<Long> cubesInDay(int trayId) {
+            Shelf s= shelfs.get(trayId);
+            if(s!=null)
+                return s.cubesInDay();
+            return null;
+        }
     }
 
     /*
     Ice.Cube
-
+    A container class for a Ice.Maker instance
+    These are accessed via the Tray.get() method
+    Once finished using a Cube, always call release();
      */
     public static class Cube {
         private final int id;
@@ -311,36 +516,71 @@ public class Ice {
             this.id=id;
             this.shelf=shelf;
         }
-        public synchronized void release() {
+        public void release() {
             if(maker!=null) {
-                shelf.makers.add(maker); // put Maker back into the shelf
+                shelf.makers.add(maker);
                 maker = null;  // remove pointer
                 shelf = null;  // remove pointer
             }
         }
+
+        /**
+         * Set the salt of the Ice.Maker
+         * @param salt string to use
+         * @return the Cube instance
+         */
         public Cube salt(String salt) {
             maker.salt(salt);
             return this;
         }
+        /**
+         * Set the password and salt of the Ice.Maker
+         * @param password password string to use
+         * @param salt salt string to use
+         * @return the Cube instance
+         */
         public Cube block(String password, String salt) {
             maker.block(password,salt);
             return this;
         }
+        /**
+         * Set the password of the Ice.Maker
+         * @param password password to use
+         * @return the Cube instance
+         */
         public Cube block(String password) {
             maker.block(password);
             return this;
         }
+        /**
+         * Set the Data to be Encrypted / Decrypted
+         * @param data the data to be encrypted / decrypted in String format
+         * @return the Cube instance
+         */
         public Cube freeze(String data) {
             maker.freeze(data);
             return this;
         }
+        /**
+         * Set the Data to be Encrypted / Decrypted
+         * @param data the data to be encrypted / decrypted in byte[] format
+         * @return the Cube instance
+         */
         public Cube freeze(byte[] data) {
             maker.freeze(data);
             return this;
         }
+        /**
+         * Pack pack functions, Encrypt, Compress, B64 encode
+         * @return the encrypted / encoded / compressed Ice.Pack
+         */
         public Pack pack() {
             return maker.pack();
         }
+        /**
+         * Unpack functions, decrypted, decompress, B64 decode
+         * @return the decrypted / decompressed / decoded Ice.Pack
+         */
         public Pack unpack() {
             return maker.unpack();
         }
@@ -350,6 +590,7 @@ public class Ice {
 
     /*
     Ice.Pop - PGP implementation 
+    A Homebrew PGP implementation using RSA and AES tailored encryption.
      */
 
     private static final byte[] rsaSeperatorBytes=Ice.stringToBytes("\n--DATA\n");
@@ -416,6 +657,8 @@ public class Ice {
          * displays when the cursor lingers over the component.
          *
          * @param bytesToEncrypt   the data to encrypt and send to the server
+         * @return the bytes[]
+         * @throws any Exception thrown in encrypting
          */
         private byte[] encrypt(byte[] bytesToEncrypt) throws Exception {
             return IceRSA.encrypt(bytesToEncrypt, usePublicKey);
@@ -425,6 +668,8 @@ public class Ice {
          * displays when the cursor lingers over the component.
          *
          * @param bytesToDecrypt   the data to decrypt received from the client side
+         * @return the decrypted String result
+         * @throws any Exception thrown in decrypting
          */
         private String decrypt(byte[] bytesToDecrypt) throws Exception {
             return IceRSA.decrypt(bytesToDecrypt,usePrivateKey);
@@ -507,12 +752,15 @@ public class Ice {
          * returns the result in a url encoded String for safe transportation across the web
          * 
          * @param charset pass the charset to encode the String with.
+         * @throws UnsupportedEncodingException is the passed Charset string is not a valid charset
+         * @return a url encoded String 
          */
         public final String toStringUrlSafe(String charset) throws UnsupportedEncodingException {
             return URLEncoder.encode(toString(), charset);
         }
         /**
          * returns the result in a url encoded String for safe transportation across the web
+         * @return a url encoded String 
          */
         public final String toStringUrlSafe() {
             try {
@@ -520,23 +768,40 @@ public class Ice {
             } catch(Exception e) {}
             return toString();
         }
+        /**
+         * The Pack result of the encryption / decryption process
+         * @return the result bytes
+         */
         public final byte[] toBytes() {
             return bytes;
         }
+        /**
+         * Time taken to complete the Ice.Pick tasks
+         * @return milliseconds taken to complete the tasks
+         */
         public final long getTime() {
             return time;
         }
+        /**
+         * Did the process complete safely
+         * 
+         * @return boolean true if success
+         */
         public boolean isSuccess() {
             return success;
         }
         /**
          * If isSuccess() returns false, the reason can be viewed here
+         * 
+         * @return If !isSuccess() then the Maker will generate a useful message.
          */
         public final String getMessage() {
             return message;
         }
         /**
          * If isSuccess() returns false and an exception was thrown, then can see it here, can be null
+         * 
+         * @return any Exception thrown can be null
          */
         public final Exception getException() {
             return e;
@@ -545,6 +810,8 @@ public class Ice {
          * write the pack result data to the passed file
          * 
          * @param file the file to write the pack result data to
+         * @return true if the File was successfully written to
+         * @throws IOException trying to write the data to the file failed
          */
         public boolean writeFile(File file) throws IOException {
             if(file!=null) {
@@ -570,8 +837,8 @@ public class Ice {
 
 
     /*
-    Ice.Flavour
-
+     * Ice.Flavour
+     * The Flavour is the holder of all Encryption information and the Ice.Pick tasks to perform
      */
     public static class Flavour {
         private final String cipher;
@@ -584,9 +851,10 @@ public class Ice {
 
         private final List<Pick> tasks=new ArrayList();
         /**
-         * Clone this Flavour
+         * copy this Flavour
+         * @return a copy of this Flavour
          */
-        protected Flavour clone() {
+        public Flavour copy() {
             if(pgp!=null) {
                 return new Flavour(pgp, tasks);
             } else {
@@ -637,7 +905,7 @@ public class Ice {
          * @param ivHex The IV to use with the encryption
          * @param keyLength encryption keyLength
          * @param iterations AES iterations to perform when encrypting, the higher the value the more secure, also the longer the process
-         * @param tasks list<> of the Ice.Pick tasks to perform.
+         * @param tasks List of the Ice.Pick tasks to perform.
          */
         public Flavour(String CIPHER_, String KEY_, String ivHex, int keyLength, int iterations,List<Pick> tasks) {
             this(CIPHER_,KEY_,ivHex,keyLength,iterations);
@@ -723,6 +991,7 @@ public class Ice {
     /**
      * with method creates an Ice Maker with the passed Flavour
      * @param flavour the encryption flavour to use
+     * @return the Ice.Maker
      */
     public static final Maker with(Flavour flavour)   {
         Maker maker=new Maker(flavour);
@@ -732,6 +1001,8 @@ public class Ice {
     /**
      * with method creates an Ice Maker with the passed Flavour
      * @param pgp the PGP Pop flavour to use
+     * @param tasks list the Ice.Pick tasks to perform
+     * @return  the Ice.Maker
      */
     public static final Maker with(Pop pgp, Pick... tasks)   {
         Maker maker=new Maker(new Flavour(pgp, tasks));
@@ -747,6 +1018,7 @@ public class Ice {
      * @param password the password to encrypt with
      * @param salt the salt value to use
      * @param tasks list... of the Ice.Pick tasks to perform.
+     * @return  the Ice.Maker
      */
     public static final Maker withBlock(String iv, String password, String salt, Pick... tasks)   {
         Maker maker =null;
@@ -766,11 +1038,11 @@ public class Ice {
      * The Maker class, main container class for all the specifics of the Ice process
      */
     public static class Maker {
-        private static final int MODE_UNLOCKED=0;
-        public static final int MODE_PACK=1;
-        public static final int MODE_UNPACK=2;
+        //private static final int MODE_UNLOCKED=0;
+        //public static final int MODE_PACK=1;
+        //public static final int MODE_UNPACK=2;
 
-        private int lockedMode =MODE_UNLOCKED;
+        //private int lockedMode =MODE_UNLOCKED;
         private byte[] cbytes;
         private Flavour flavour;
         private Block block;
@@ -800,13 +1072,21 @@ public class Ice {
                 return;
             }
         }
-        protected Maker clone() {
-            Maker maker = new Maker(flavour.clone());
-            maker.block=new Block(block.password,block.salt);
-            maker.salty=salty;
-            maker.halted=halted;
-            maker.message=message;
-            maker.haltedEx=haltedEx;
+        public Maker copy() {
+            Maker maker = new Maker(flavour.copy());
+            maker.cipher=cipher;
+            if(flavour.isGCM()) {
+                maker.gcmParameterSpec = new GCMParameterSpec(128, Ice.hex(flavour.iv));
+            } else {
+                maker.ivParameterSpec = new IvParameterSpec(Ice.hex(flavour.iv));
+            }
+            if(salty!=null) {
+                maker.salty=salty;
+            }
+            if(block!=null && block.password!=null) {
+                maker.block= new Block(block.password,maker.salty);
+            }
+
             return maker;
         }
         public boolean isHalted() {
@@ -815,6 +1095,7 @@ public class Ice {
         public String getMessage() {
             return message;
         }
+        /*
         public boolean isLocked() { return lockedMode!=MODE_UNLOCKED;}
         public boolean lock(int MODE_) {
             if(MODE_==MODE_PACK) {
@@ -824,26 +1105,9 @@ public class Ice {
             }
 
             preFreeze();
-            if(!halted) {
-                try {
-                    if(gcmParameterSpec!=null) {
-                        cipher.init(lockedMode, skey, gcmParameterSpec);
-                    } else {
-                        cipher.init(lockedMode, skey, ivParameterSpec);
-                    }
-                    return true;
-                } catch (InvalidAlgorithmParameterException e) {
-                    halted = true;
-                    message = "Cracked Ice:  Cipher: InvalidAlgorithmParameterException = " + e.getMessage();
-                    haltedEx = e;
-                } catch (InvalidKeyException e) {
-                    halted = true;
-                    message = "Cracked Ice:  Cipher: InvalidKeyException = " + e.getMessage();
-                    haltedEx = e;
-                }
-            }
             return false;
         }
+        */
         private void clearHalted() {
             if(halted) {
                 halted = false;
@@ -855,6 +1119,7 @@ public class Ice {
          * The Maker block method, the block contain password and salt data
          * 
          * @param password the password to encrypt with
+         * @return this Ice.Maker
          */
         public final Maker block(String password) {
             if(salty!=null) {
@@ -867,6 +1132,7 @@ public class Ice {
          * 
          * @param password the password to encrypt with
          * @param salt the salt to use
+         * @return this Ice.Maker
          */
         public final Maker block(String password, String salt) {
             return block(new Block(password,salt));
@@ -875,6 +1141,7 @@ public class Ice {
          * The Maker salt method, adds salt data, allows putting password and salt data in different parts of the system
          * 
          * @param salt the salt to use
+         * @return this Ice.Maker
          */
         public Maker salt(String salt) {
             salty=salt;
@@ -884,6 +1151,7 @@ public class Ice {
         * drip method, allow adding of iv at any time
         * 
         * @param iv The IV to use with the encryption
+        * @return this Ice.Maker
         */
         public final Maker drip(String iv) {
             if(flavour!=null && iv!=null) {
@@ -1077,7 +1345,7 @@ public class Ice {
          * freeze method, adds in the data to encrypt / decrypt
          * 
          * @param text the data to encrypt / decrypt
-         * @return 
+         * @return this Ice.Maker
          */
         public final Maker freeze(String text) {
             if(text==null || text.isEmpty()) {
@@ -1090,7 +1358,7 @@ public class Ice {
          * freeze method, adds in the data to encrypt / decrypt
          * 
          * @param cbytes the byte data to encrypt / decrypt
-         * @return 
+         * @return this Ice.Maker
          */
         public final Maker freeze(byte[] cbytes) {
             if(cbytes==null || cbytes.length==0) {
@@ -1103,14 +1371,14 @@ public class Ice {
         }
         /**
          * Pack the data (encryption)
-         * @return 
+         * @return the Ice.Pack result
          */
         public final Pack pack() {
             return packUnpack(true);
         }
         /**
          * Unpack the data (decryption)
-         * @return 
+         * @return  the Ice.Pack result
          */
         public final Pack unpack() {
             return packUnpack(false);
@@ -1126,8 +1394,8 @@ public class Ice {
 
 
             if(!halted) {
-                if(lockedMode!=MODE_UNLOCKED)
-                    doPack=lockedMode==MODE_PACK?true:false;
+                //if(lockedMode!=MODE_UNLOCKED)
+                //    doPack=lockedMode==MODE_PACK?true:false;
                 List<Pick> useTasks=null;
                 int encMode=Cipher.ENCRYPT_MODE;
                 useTasks=new ArrayList<>(flavour.tasks);
@@ -1155,13 +1423,13 @@ public class Ice {
                             case ENCRYPTION:
                                 if(flavour.isAes) {
                                     try {
-                                        if(lockedMode==MODE_UNLOCKED) {
+                                        //if(lockedMode==MODE_UNLOCKED) {
                                             if(gcmParameterSpec!=null) {
                                                 cipher.init(encMode, skey, gcmParameterSpec);
                                             } else {
                                                 cipher.init(encMode, skey, ivParameterSpec);
                                             }
-                                        }
+                                        //}
                                         cbytes = cipher.doFinal(cbytes);
                                     } catch (IllegalBlockSizeException e) {
                                         halted = true;
@@ -1304,9 +1572,10 @@ public class Ice {
     
     /**
      * Converts bytes to String using the passed charset 
+     * 
      * @param bytes the bytes[] to convert to String
      * @param charset the charset to encode the String with
-     * @return 
+     * @return the String result
      */
     public static final String bytesToString(byte[] bytes, Charset charset) {
         if(bytes!=null)
@@ -1315,8 +1584,9 @@ public class Ice {
     }
     /**
      * Converts bytes to String using the DEFAULT_CHARSET 
+     * 
      * @param bytes the bytes[] to convert to String
-     * @return 
+     * @return the String result
      */
     public static final String bytesToString(byte[] bytes) {
         if(bytes!=null)
@@ -1326,7 +1596,7 @@ public class Ice {
     /**
      * Converts String to bytes using the DEFAULT_CHARSET 
      * @param value the String to convert to bytes[]
-     * @return 
+     * @return the byte[] result
      */
     public static final byte[] stringToBytes(String value) {
         if(value!=null)
@@ -1336,9 +1606,10 @@ public class Ice {
     }
     /**
      * Converts String to bytes using the passed charset
+     * 
      * @param value the String to convert to bytes[]
      * @param charset the charset to encode the String with
-     * @return 
+     * @return the byte[] result
      */
     public static final byte[] stringToBytes(String value, Charset charset) {
         if(value!=null)
@@ -1354,10 +1625,11 @@ public class Ice {
     }
 
     /**
-     * Joins a List<String> into one String, convenience method
-     * @param delimiter
-     * @param elements
-     * @return 
+     * Joins a List String into one String, convenience method
+     * 
+     * @param delimiter delimiter value for joining the List elements
+     * @param elements the List of String elements to join together
+     * @return the String result
      */
     public static String join(String delimiter, List<String> elements) {
         StringBuilder joiner = new StringBuilder();
@@ -1373,8 +1645,8 @@ public class Ice {
      * Write the passed bytes to a file
      * @param file the file to write to, make sure it exists beforehand
      * @param bytes the byte[] data to write to the file
-     * @return
-     * @throws IOException 
+     * @return boolean true if success
+     * @throws IOException most likely the file does not exist, or read only
      */
     public static boolean writeBytes(File file, byte[] bytes) throws IOException {
         FileOutputStream stream = new FileOutputStream(file.getAbsoluteFile());
@@ -1386,8 +1658,9 @@ public class Ice {
     
     /**
      * Create a random Alphanumeric String of defined length (useful for password generation)
-     * @param length
-     * @return 
+     * 
+     * @param length number of characters in the String
+     * @return the random Alphanumeric String of requested length
      */
     public static final String randomString(final int length) {
         char[] chars = ALPHABET_FULL.toCharArray();
@@ -1402,8 +1675,9 @@ public class Ice {
     private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
     /**
      * Convert bytes[] to Hex, useful for iv functions
-     * @param bytes
-     * @return 
+     * 
+     * @param bytes the bytes to covert
+     * @return the Hexi-decimal String result
      */
     public static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];
@@ -1416,15 +1690,17 @@ public class Ice {
     }
     /**
      * Create a random IV with a length of 16
-     * @return 
+     * 
+     * @return a random Hex String
      */
     public static String randomIvHex() {
         return randomIvHex(16);
     }
     /**
      * Create a random IV of defined length
-     * @param ivSize
-     * @return 
+     * 
+     * @param ivSize the length of the iv param, 12 and 16 are usual depending on the cypher
+     * @return a random Hex String
      */
     public static String randomIvHex(int ivSize) {
         byte[] iv = new byte[ivSize];
@@ -1434,15 +1710,16 @@ public class Ice {
     }
     /**
      * Creates a random salt with a length of 32
-     * @return 
+     * 
+     * @return a random salt String
      */
     public static String randomSalt() {
         return randomSalt(32);
     }
     /**
      * Creates a random salt of defined length
-     * @param length
-     * @return 
+     * @param length the length of the salt string
+     * @return a random salt String
      */
     public static String randomSalt(int length) {
         StringBuilder builder = new StringBuilder();
@@ -1457,25 +1734,21 @@ public class Ice {
 
     /**
      * Convert a hex String to byte[]
-     * @param str
-     * @return 
+     * @param str pass a valid hex string
+     * @return the Hex String result
+     * @throws DecoderException this is thrown if the String is not a valid hex string
      */
-    public static byte[] hex(String str) {
-        try {
-            return Hex.decode(str);
-        }
-        catch (DecoderException e) {
-            throw new IllegalStateException(e);
-        }
+    public static byte[] hex(String str) throws DecoderException {
+        return Hex.decode(str);
     }
 
     /**
      * Generate a random RSA key pair for Ice.Pop PGP
-     * @return
      * @param RSA_KEY_ the key size to use
-     * @throws Exception 
+     * @return RSA KeyPair with private and public keys
+     * @throws NoSuchAlgorithmException if the Java implementation does not have the RSA algorithm 
      */
-    public static KeyPair randomRsaKeyPair(int RSA_KEY_) throws Exception {
+    public static KeyPair randomRsaKeyPair(int RSA_KEY_) throws NoSuchAlgorithmException {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(RSA_KEY_, new SecureRandom());
         KeyPair pair = generator.generateKeyPair();
@@ -1483,10 +1756,10 @@ public class Ice {
     }
     /**
      * Generate a random RSA 2058 key pair for Ice.Pop PGP
-     * @return
-     * @throws Exception 
+     * @return RSA KeyPair with private and public keys
+     * @throws NoSuchAlgorithmException  if the Java implementation does not have the RSA algorithm 
      */
-    public static KeyPair randomRsaKeyPair() throws Exception {
+    public static KeyPair randomRsaKeyPair() throws NoSuchAlgorithmException {
         return randomRsaKeyPair(RSA_KEY_2048);
     }
     private static class IceRSA {
@@ -1508,12 +1781,12 @@ public class Ice {
     }
     /**
      * convert a private key String back to the private Key pair
-     * @param key64
-     * @return
-     * @throws GeneralSecurityException 
+     * @param privateKeyString a valid RSA PrivateKey string
+     * @return RSA PrivateKey
+     * @throws GeneralSecurityException  if the Java implementation does not have the RSA algorithm 
      */
-    public static PrivateKey stringToPrivateKey(String key64) throws GeneralSecurityException {
-        byte[] clear = Base64.decode(key64,Base64.DEFAULT);
+    public static PrivateKey stringToPrivateKey(String privateKeyString) throws GeneralSecurityException {
+        byte[] clear = Base64.decode(privateKeyString,Base64.DEFAULT);
         PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(clear);
         KeyFactory fact = KeyFactory.getInstance("RSA");
         PrivateKey priv = fact.generatePrivate(keySpec);
@@ -1523,17 +1796,22 @@ public class Ice {
 
     /**
      * Convert the public key String back to the public key pair
-     * @param stored
-     * @return
-     * @throws GeneralSecurityException 
+     * @param publicKeyString a valid PublicKeyString
+     * @return RSA PublicKey
+     * @throws GeneralSecurityException if the Java implementation does not have the RSA algorithm 
      */
-    public static PublicKey stringToPublicKey(String stored) throws GeneralSecurityException {
-        byte[] data = Base64.decode(stored,Base64.DEFAULT);
+    public static PublicKey stringToPublicKey(String publicKeyString) throws GeneralSecurityException {
+        byte[] data = Base64.decode(publicKeyString,Base64.DEFAULT);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(data);
         KeyFactory fact = KeyFactory.getInstance("RSA");
         return fact.generatePublic(spec);
     }
-
+    /**
+     * converts a RSA PrivateKey to a String
+     * @param priv the PrivateKey
+     * @return RSA PrivateKey as a String
+     * @throws GeneralSecurityException  if the Java implementation does not have the RSA algorithm 
+     */
     public static String privateKeyToString(PrivateKey priv) throws GeneralSecurityException {
         KeyFactory fact = KeyFactory.getInstance("RSA");
         PKCS8EncodedKeySpec spec = fact.getKeySpec(priv,
@@ -1546,10 +1824,10 @@ public class Ice {
     }
 
     /**
-     * Converts the public key to a String to send to the client
-     * @param publ
-     * @return
-     * @throws GeneralSecurityException 
+     * Converts a RDSA public key to a String to send to the client
+     * @param publ the PublicKey
+     * @return RSA PublicKey as a String for sending to the client
+     * @throws GeneralSecurityException   if the Java implementation does not have the RSA algorithm 
      */
     public static String publicKeyToString(PublicKey publ) throws GeneralSecurityException {
         KeyFactory fact = KeyFactory.getInstance("RSA");
@@ -1559,6 +1837,14 @@ public class Ice {
     }
 
     public static class Zip {
+        /**
+         * ZipBytes compresses the bytes in memory to a Zip compressed byte[] result
+         * 
+         * @param input the bytes to compress
+         * @param filename the name of the Zip internal file representation (this is not a File on the File system)
+         * @return the compress byte[] result
+         * @throws IOException if an Exception was thrown
+         */
         public static byte[] zipBytes(byte[] input, String filename) throws IOException {
             if(filename==null)
                 throw new IOException("Zip filename cannot be null");
@@ -1646,9 +1932,9 @@ public class Ice {
      *   getCharset(String)
      *   Probes a String and determines the Charset, see Charset[] charsets for list of available
      *   Modified version adapted from:
-     *   https://www.turro.org/publications/?item=114&page=0
-     * @param value
-     * @return 
+     *   "https://www.turro.org/publications/?item=114&amp;page=0"
+     * @param value a valid charset string value
+     * @return valid Charset
      */
     public static Charset getCharset(String value) {
         Charset probe = UTF_8;
@@ -2238,6 +2524,7 @@ public class Ice {
          *
          * @throws IllegalArgumentException if the input contains
          * incorrect padding
+         * @return the decoded bytes
          */
         public static byte[] decode(String str, int flags) {
             return decode(str.getBytes(), flags);
@@ -2255,6 +2542,7 @@ public class Ice {
          *
          * @throws IllegalArgumentException if the input contains
          * incorrect padding
+         * @return the decoded bytes
          */
         public static byte[] decode(byte[] input, int flags) {
             return decode(input, 0, input.length, flags);
@@ -2274,6 +2562,7 @@ public class Ice {
          *
          * @throws IllegalArgumentException if the input contains
          * incorrect padding
+         * @return the decoded bytes
          */
         public static byte[] decode(byte[] input, int offset, int len, int flags) {
             // Allocate space for the most data the input could represent.
@@ -2544,6 +2833,7 @@ public class Ice {
          * @param flags  controls certain features of the encoded output.
          *               Passing {@code DEFAULT} results in output that
          *               adheres to RFC 2045.
+         * @return the encoded String
          */
         public static String encodeToString(byte[] input, int flags) {
             try {
@@ -2564,6 +2854,7 @@ public class Ice {
          * @param flags  controls certain features of the encoded output.
          *               Passing {@code DEFAULT} results in output that
          *               adheres to RFC 2045.
+         * @return the encoded String
          */
         public static String encodeToString(byte[] input, int offset, int len, int flags) {
             try {
@@ -2581,6 +2872,7 @@ public class Ice {
          * @param flags  controls certain features of the encoded output.
          *               Passing {@code DEFAULT} results in output that
          *               adheres to RFC 2045.
+         * @return the encoded bytes
          */
         public static byte[] encode(byte[] input, int flags) {
             return encode(input, 0, input.length, flags);
@@ -2596,6 +2888,7 @@ public class Ice {
          * @param flags  controls certain features of the encoded output.
          *               Passing {@code DEFAULT} results in output that
          *               adheres to RFC 2045.
+         * @return the encoded bytes
          */
         public static byte[] encode(byte[] input, int offset, int len, int flags) {
             Encoder encoder = new Encoder(flags, null);
@@ -2891,7 +3184,6 @@ public class Ice {
                     }
                 }
                 if( matchOffset > 0 ) {
-                    //System.out.println( "Offset " + matchOffset + " Length " + matchLength );
                     output[ outputIdx++ ] = ( byte ) ( 0x80 | matchLength );
                     output[ outputIdx++ ] = ( byte ) ( matchOffset >> 8 );
                     output[ outputIdx++ ] = ( byte ) matchOffset;
