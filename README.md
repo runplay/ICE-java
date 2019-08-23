@@ -367,6 +367,9 @@ Opening and closing a Tray<br/>
                     
             }
         }
+        // After you have finished with the Ice.Cube
+        // ALWAYS release it to put it back into the pool.
+	ucube.release();
     }
 
     // After you have finished with the Ice.Cube
