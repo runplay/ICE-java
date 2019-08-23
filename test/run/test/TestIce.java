@@ -28,11 +28,11 @@ public class TestIce {
     
     public static void main(String[] args) {
         
-        //iceQuickTest();
-        //iceTestDetailed();
-        //iceTestPGP();
+        iceQuickTest();
+        iceTestDetailed();
+        iceTestPGP();
         //iceAsyncTest();
-        iceTestTray();
+        //iceTestTray();
     }
     
     
@@ -190,7 +190,7 @@ public class TestIce {
         //
         pack.toString(); // return a string version of the data 
         pack.toBytes(); // returns the bytes
-        pack.toStringUrlSafe(); // return a string version of the data safe for http transport
+        pack.toStringUrlSafe(); // return a string version of the data safe for http url transport
         pack.getTime(); // time taken in millis
         pack.isSuccess(); // did the pack succeed
         pack.getMessage(); // if(!isSucess()) then a message will appear here, or null if success

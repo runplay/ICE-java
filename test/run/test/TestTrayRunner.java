@@ -74,6 +74,7 @@ public class TestTrayRunner extends Thread {
 
             try {
                 if(i>100) {
+                    // after 100 iterations slow down the speed (used this to test minCache feature)
                     TestTrayRunner.sleep(getRandom(1500,2500));
                 } else {
                     TestTrayRunner.sleep(getRandom(100,200));

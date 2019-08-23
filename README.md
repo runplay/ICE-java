@@ -33,13 +33,15 @@ Appendix:<br/>
 4 - PGP use<br/>
 5 - Async use<br/>
 6 - Ice Tray & Cubes (Pooling for Server implementations)<br/>
+7 - Useful features<br/>
 <br/>
 Simplest method are not recommend as it uses defaults for Flavour, iv and salt, however depicts well the ease of use.
 <br/>
 <h3>1 - Simple use</h3>
 <br/>to encrypt:<br/>
 
-```bash
+```
+
 Pack encrypted = Ice
 		.with(new Flavour())
 		.freeze("Text or bytes[] to encrypt")
@@ -50,7 +52,8 @@ Pack encrypted = Ice
 ```
 <br/>and then to decrypt:<br/>
 
-```bash
+```
+
 Pack decrypted = Ice
 		.with(new Flavour())
 		.freeze("Text or bytes[] to decrypt")
@@ -62,12 +65,13 @@ Pack decrypted = Ice
 <h3>2 - Result pack useful methods</h3>
 <br/>reading the Pack:<br/>
 
-```bash
+```
+
 Pack pack = Ice.with.....
 
 pack.toString(); // return a string version of the data
 pack.toBytes(); // returns the bytes
-pack.toStringUrlSafe(); // return a string version of the data safe for http transport
+pack.toStringUrlSafe(); // return a string version of the data safe for http url transport
 pack.getTime(); // time taken
 pack.isSucess(); // did the pack succeed
 pack.getMessage(); // if(!isSucess()) then a message will appear here, or null if success
@@ -81,7 +85,7 @@ pack.writeFile(File file); // write the bytes to a file
 <br/>
 a more detailed version is in the Flavour:<br/>
 
-```bash
+```
 
         
         String iv=Ice.randomIvHex();
@@ -192,7 +196,7 @@ a more detailed version is in the Flavour:<br/>
 <h3>4 - PGP</h3>
 <br/>Ice contains a full PGP implementation (RSA,AES), ICE PGP is not currently compatible with OpenPGP or other PGP imp. (future task)<br/>
 
-```bash
+```
 
         KeyPair keys = null;
         try {
@@ -245,7 +249,7 @@ a more detailed version is in the Flavour:<br/>
 <h3>5 - Async use</h3>
 <br/>to encrypt:<br/>
 
-```bash
+```
 
         String iv=Ice.randomIvHex();
         String salt=Ice.randomSalt();
@@ -309,16 +313,120 @@ a more detailed version is in the Flavour:<br/>
 ```
 
 <h3>6 - Ice Tray & Cubes</h3>
-<br/>Ice pooling for Server implementations<br/>
+<br/>Ice pooling for Server implementations, for a full test scenario including multiple Trays and maultiple Threads, see IceTest and the called TestTrayRunner<br/><br/>
+Opening and closing a Tray<br/>
 
-```bash
+```
 
-Ice Tray and Cubes are still under development, included in the current release is a basic version, but plenty to do.
+    String iv=Ice.randomIvHex();
+    Flavour flavour = new Flavour(
+            Ice.CIPHER_AES_GCM_PKCS5Padding
+            ,Ice.KEY_PBKDF2WithHmacSHA256
+            ,iv
+            ,256
+            ,5000
+            ,Pick.ZIP,Pick.ENCRYPTION,Pick.BASE64
+    );
+    Ice.Maker maker = Ice.with(flavour);
+    int trayId=1;
+    try {
 
-It is not recommended to use !
+        Ice.Tray.open(trayId, maker, 2,true);  // This will open up a tray, with a min of 2 Cubes kept in cache and montioring stats
+	// Ice.Tray.open(trayId, maker); // this will open up a Tray with no cache management or stats
 
-example coming soon once ready...
+    } catch (Ice.Tray.InvalidTrayException ex) {
+	// Tray exists already
+        ex.printStackTrace();
+    }
 
+    // IMPORTANT - on Server shudown always close ALL trays.
+    Ice.Tray.close(trayId);
+    
+
+```
+
+<br/>Getting an Ice.Cube and using it<br/>
+
+```
+    // An Ice.Cube requires password and salt, you cannot change the IV, changing the IV will come in the next version.
+
+    Ice.Cube cube = Ice.Tray.get(trayId);
+    String stringToUse = Ice.randomString(getRandom(500,5000));
+    String salt = Ice.randomSalt();
+    String password = Ice.randomString(20);
+    
+    Ice.Pack pack = cube.block(password,salt).freeze(stringToUse).pack();
+    if(pack.isSuccess()) {
+	System.out.println("Success on encrypt");
+
+        Ice.Cube ucube = Ice.Tray.get(trayId);
+        Ice.Pack unpack=ucube.block(password,salt).freeze(pack.toBytes()).unpack();
+        if(unpack.isSuccess()) {
+            if(stringToUse.equals(unpack.toString())) {
+                System.out.println("Succes on unpack and equals test confirmed correct");
+                    
+            }
+        }
+    }
+
+    // After you have finished with the Ice.Cube
+    // ALWAYS release it to put it back into the pool.
+    cube.release();
+
+
+```
+<br/>
+<h3>7 - Useful features</h3>
+<br/>Ice also comes with direct access to many of the useful features it depends on<br/><br/>
+
+```
+        
+        
+	Ice.randomIvHex(); // get a secure random hex string
+	Ice.randomSalt(); // get a secure random salt string
+	Ice.randomString(20); // get a secure random string useful for password gen
+
+	//
+	// base 64
+	//
+
+	String strToEncode = "How to use Base64";
+
+	String encoded=Ice.Base64.encodeToString(Ice.stringToBytes(strToEncode), Ice.Base64.DEFAULT);
+
+	String decoded=Ice.bytesToString(Ice.Base64.decode(Ice.stringToBytes(encoded), Ice.Base64.DEFAULT));
+
+
+	//
+	// compression
+	//
+
+	byte[] zip = Ice.stringToBytes("How to use zip compression");
+
+	try {
+	    
+	    byte[] zippedBytes=Ice.Zip.zipBytes(zip,"filname.txt");
+	    
+	    // 
+	    // If you want to write the data to disk
+	    // 
+	    //File f = new File("zipFileName.zip");
+	    //f.createNewFile();
+	    //Ice.writeBytes(f, zipped);
+	    
+	    byte[] unzipped=Ice.Zip.unzipBytes(zippedBytes,"filename.txt");
+	    
+	} catch (IOException ex) {
+	    
+	}
+        
+	// String compression
+        
+	byte[] compressedString = LZ77.pack(Ice.stringToBytes("This version works directly with byte[]"));
+	
+	byte[] decomressedString = LZ77.unpack(compressedString);
+	
+        
 
 ```
 
