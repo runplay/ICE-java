@@ -203,6 +203,8 @@ public class Ice {
             throw new InvalidSaltException("Cracked Ice default - Salt cannot be null or empty");
         DEFAULT_SALT=salt;
     }
+    
+    
     /*
 
     Ice.Tray
@@ -230,19 +232,36 @@ public class Ice {
             
             // Flow monitoring not yet implemented
             private boolean shutdown=false;
-
-            private final int minCache;
+            private Scraper scraper;
+            
+            private final int minSpare;
             private AtomicInteger counter = new AtomicInteger(0);
             private double avgFlow=0D;
             private long flowSecond=0;
             private long flowMinute = 0;  // montior the per current second flow
             private long flowHour = 0; // monitor the average flow over the life of the shelf
             private static final int FLOWVAL=59;
-            private List<Long> secondFlow=new ArrayList<>();
-            private List<Long> minuteFlow=new ArrayList<>();
-            private List<Long> hourFlow=new ArrayList<>();
+            private final List<Long> secondFlow=new ArrayList<>();
+            private final List<Long> minuteFlow=new ArrayList<>();
+            private final List<Long> hourFlow=new ArrayList<>();
 
-            private final Thread flow = new Thread() {
+            /**
+             * The Scraper provides stats and trimming of Cube's as necessary 
+             */
+            private final class Scraper implements Runnable {
+                private Thread scrape;
+                            
+                public void init() {                 // always!
+                    scrape = new Thread(this);
+                    scrape.setPriority(Thread.MIN_PRIORITY);  // be a good citizen
+                    scrape.start();
+                }
+
+                public void destroy() {
+                    shutdown=true;
+                    scrape.interrupt();
+                }
+                
                 @Override
                 public void run() {
                     while(true) {
@@ -268,17 +287,21 @@ public class Ice {
                             }
                         }
                         long size=makers.size();
+                        // leaving these System outs in this method commented out as it useful for testing purposes
+                        //System.out.println("flowcheck size: "+size+" vs cache: "+maxCache+" with avgFlow: "+avgFlow);
                         if(size>avgFlow) {
-                            size=size-Double.valueOf(avgFlow).intValue();
-                            if(size>minCache) {
+                            size=size-Double.valueOf(avgFlow).intValue()-minSpare;
+                            //System.out.println(">avgFlow, size: "+size);
+                            if(size>0) {
+                                //System.out.println("cull: "+size+" - makers.size: "+makers.size());
                                 for(int i=0; i<size; i++) {
                                     makers.poll();
                                 }
                             }
                         }
                         try {
-                            this.wait(999);
-                        } catch(Exception e){}
+                            Thread.sleep(999);
+                        } catch (InterruptedException ex) { }
                     }
                 }
             };
@@ -289,24 +312,27 @@ public class Ice {
                 }
                 return tally;
             }
-            private Shelf(int id, Maker maker, int minCache, boolean flowMonitor)  {
+            private Shelf(int id, Maker maker, int minSpare, boolean flowMonitor)  {
                 this.parentMaker=maker;
                 this.id=id;
 
-                if(minCache<1) {
-                    this.minCache=1;
-                } else if(minCache>60) {
-                    this.minCache=60;
+                if(minSpare<1) {
+                    this.minSpare=1;
+                } else if(minSpare>60) {
+                    this.minSpare=60;
                 } else {
-                    this.minCache=minCache;
+                    this.minSpare=minSpare;
                 }
                 if(flowMonitor) {
-                    flow.start();
+                    scraper = new Scraper();
+                    scraper.init();
                 }
             }
             private void destroy() {
                 shutdown=true;
-                flow.interrupt();
+                if(scraper!=null) {
+                    scraper.destroy();
+                }
             }
             private Cube get() {
                 Maker maker = makers.poll();
@@ -353,30 +379,19 @@ public class Ice {
          * @throws InvalidTrayException if the Maker is null or has no Flavour or they Tray instance (id) already exists
          */
         public static void open(int trayId, Maker maker) throws InvalidTrayException {
-            open(trayId, maker, 2); // default to keep 2 seconds worth in the pipe.
+            open(trayId, maker, 2, false); // default to keep 2 min spare Ice.Cubes per second worth in the pipe.
         }
-        /**
-         * Creates an new Tray instance, internally called a Shelf
-         * The Tray instance will create a pool of Ice.Cube's for processing the data.
-         * @param trayId The id number of the Tray instance
-         * @param maker The template Ice.Maker that the Cube's are copied from.
-         * @param minCache The minimum cache size of the Ice.Cube's to keep in the Tray
-         * @throws InvalidTrayException  if the Maker is null or has no Flavour or they Tray instance (id) already exists
-         */
-        public static void open(int trayId, Maker maker, int minCache) throws InvalidTrayException {
-            open(trayId, maker, minCache,false);
 
-        }
         /**
          * Creates an new Tray instance, internally called a Shelf
          * The Tray instance will create a pool of Ice.Cube's for processing the data.
          * @param trayId The id number of the Tray instance
          * @param maker The template Ice.Maker that the Cube's are copied from.
-         * @param minCache The minimum cache size of the Ice.Cube's to keep in the Tray
-         * @param flowMonitor keeps flow monitoring information of the Tray for stats.
+         * @param minSpare The minimum number of Ice.Cube's per second to keep in the Tray
+         * @param flowMonitor keeps flow monitoring information of the Tray for statistic retrieval.
          * @throws InvalidTrayException  if the Maker is null or has no Flavour or they Tray instance (id) already exists
          */
-        public static void open(int trayId, Maker maker, int minCache, boolean flowMonitor) throws InvalidTrayException {
+        public static void open(int trayId, Maker maker, int minSpare, boolean flowMonitor) throws InvalidTrayException {
             if(maker==null)
                 throw new InvalidTrayException("Cracked Tray: Maker parameter is null");
             if(maker.flavour==null)
@@ -384,7 +399,7 @@ public class Ice {
 
             if(shelfs.get(trayId)==null) {
                 
-                shelfs.put(trayId, new Shelf(trayId, maker,minCache,flowMonitor));
+                shelfs.put(trayId, new Shelf(trayId, maker,minSpare,flowMonitor));
 
             } else {
                 throw new InvalidTrayException("Cracked Tray: a Tray with already exists with id: "+trayId);
@@ -419,7 +434,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return the number of Ice.Cubes in the Ice.Tray
          */
-        public int size(int trayId) {
+        public static int size(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.size();
@@ -431,7 +446,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return long value for the latest live Ice.Cubes processed per second.
          */
-        public long cubesPerSecond(int trayId) {
+        public static long cubesPerSecond(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.cubesPerSecond();
@@ -443,7 +458,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return  long value for the latest live Ice.Cubes processed per minute.
          */
-        public long cubesPerMinute(int trayId) {
+        public static long cubesPerMinute(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.cubesPerMinute();
@@ -455,7 +470,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return  long value for the latest live Ice.Cubes processed per hour.
          */
-        public long cubesPerHour(int trayId) {
+        public static long cubesPerHour(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.cubesPerHour();
@@ -468,7 +483,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return a List of length 1-60 for Ice.Cubes processed per second over the past minute
          */
-        public List<Long> cubesInMinute(int trayId) {
+        public static List<Long> cubesInMinute(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.cubesInMinute();
@@ -480,7 +495,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return  a List of length 0-60 for Ice.Cubes processed per minute over the past hour
          */
-        public List<Long> cubesInHour(int trayId) {
+        public static List<Long> cubesInHour(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.cubesInHour();
@@ -492,7 +507,7 @@ public class Ice {
          * @param trayId a unique int id for the tray instance
          * @return  a List of length 0-24 for Ice.Cubes processed per hour over the past Day
          */
-        public List<Long> cubesInDay(int trayId) {
+        public static List<Long> cubesInDay(int trayId) {
             Shelf s= shelfs.get(trayId);
             if(s!=null)
                 return s.cubesInDay();
@@ -975,9 +990,7 @@ public class Ice {
         }
         private void addTasks(Pick... tasks) {
             if(tasks!=null) {
-                for (Pick task : tasks) {
-                    this.tasks.add(task);
-                }
+                this.tasks.addAll(Arrays.asList(tasks));
             }
         }
         public boolean isGCM() {
@@ -1021,7 +1034,7 @@ public class Ice {
      * @return  the Ice.Maker
      */
     public static final Maker withBlock(String iv, String password, String salt, Pick... tasks)   {
-        Maker maker =null;
+        Maker maker;
         if(password!=null && salt!=null && iv!=null && password.length()>0) {
             maker=new Maker(new Flavour(iv,tasks));
             maker.preFreeze();
@@ -1153,7 +1166,7 @@ public class Ice {
         * @param iv The IV to use with the encryption
         * @return this Ice.Maker
         */
-        public final Maker drip(String iv) {
+        public Maker drip(String iv) {
             if(flavour!=null && iv!=null) {
                 clearHalted();
                 flavour.iv=iv;
@@ -1161,7 +1174,7 @@ public class Ice {
             }
             return this;
         }
-        private final Maker block(Block block) {
+        private Maker block(Block block) {
             if(flavour.isAes) {
                 clearHalted();
                 this.block=block;
@@ -1383,7 +1396,7 @@ public class Ice {
         public final Pack unpack() {
             return packUnpack(false);
         }
-        private final Pack packUnpack(boolean doPack) {
+        private Pack packUnpack(boolean doPack) {
             Pack pack = new Pack();
             long started=System.currentTimeMillis();
 

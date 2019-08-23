@@ -28,11 +28,11 @@ public class TestIce {
     
     public static void main(String[] args) {
         
-        iceQuickTest();
-        iceTestDetailed();
-        iceTestPGP();
+        //iceQuickTest();
+        //iceTestDetailed();
+        //iceTestPGP();
         //iceAsyncTest();
-        //iceTestTray();
+        iceTestTray();
     }
     
     
@@ -388,11 +388,16 @@ public class TestIce {
     */
 
     
-    private static final int THREAD_INSTANCE=5;
-    private static final int TRAY_INSTANCES=2;
+    private static final int THREAD_INSTANCE=20;
+    private static final int TRAY_INSTANCES=3;
+    private static int SHUTDOWN_AT;
+    private static int SHUTDOWN_AT_COUNT;
     public static void iceTestTray() {
-
+        SHUTDOWN_AT_COUNT=0;
+        SHUTDOWN_AT=TRAY_INSTANCES*THREAD_INSTANCE;
         System.out.println("\n\nTEST ICE TRAY - thread runner\n\n*****************************************************\nSTART:\n");
+        System.out.println("Per Tray: "+(THREAD_INSTANCE*TestTrayRunner.THREAD_LOOP)+" encryptions and decryptions will be run, the encryption Ice.Cude will be return to the tray only after the decryption is returned");
+        System.out.println("Data will be output once each Thread is completed");
         for(int t=0; t<TRAY_INSTANCES; t++) {
             String iv=Ice.randomIvHex();
             Flavour flavour = new Flavour(
@@ -407,7 +412,7 @@ public class TestIce {
             Ice.Maker maker = Ice.with(flavour);
 
             try {
-                Ice.Tray.open(t, maker, 2,false);
+                Ice.Tray.open(t, maker, 2,true);
                 for(int ti=0; ti<THREAD_INSTANCE; ti++) {
                     TestTrayRunner tmp=new TestTrayRunner(t,ti);
                     tmp.start();
@@ -419,6 +424,13 @@ public class TestIce {
         }
 
     }
-
-
+    public static synchronized void checkShutdown() {
+        if(++SHUTDOWN_AT_COUNT>=SHUTDOWN_AT) {
+            for(int t=0; t<TRAY_INSTANCES; t++) {
+                Ice.Tray.close(t);
+            }
+            System.out.println("\n\nTEST ICE TRAY COMPLETED - CLOSE COMMANDS ISSUED\n\n");
+        }
+    }
+    
 }

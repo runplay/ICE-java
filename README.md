@@ -313,7 +313,7 @@ a more detailed version is in the Flavour:<br/>
 
 ```bash
 
-Ive Tray and Cubes are still under development, included in the current release is a basic version, but plenty to do.
+Ice Tray and Cubes are still under development, included in the current release is a basic version, but plenty to do.
 
 It is not recommended to use !
 
@@ -324,7 +324,8 @@ example coming soon once ready...
 
 <br/>
 <h2>Updates</h2>
-v1.1.100 - Ice.Tray pooling implemented - Server side implementations
+v1.1.101 - Ice.Tray pooling finalised<br/>
+v1.1.100 - Ice.Tray pooling implemented - Server side implementations<br/>
 v1.1.024 - Defaults now set to the security versions AES-GCM, SHA256, Test class expanded.<br/>
 v1.1.023 - Small tweaks and opened up RSA key size choice (1024,2048,4096)<br/>
 v1.1.022 - Added documentation and comments for developers ease<br/>
