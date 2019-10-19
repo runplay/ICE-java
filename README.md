@@ -351,7 +351,7 @@ Opening and closing a Tray<br/>
     // An Ice.Cube requires password and salt, you cannot change the IV, changing the IV will come in the next version.
 
     Ice.Cube cube = Ice.Tray.get(trayId);
-    String stringToUse = Ice.randomString(getRandom(500,5000));
+    String stringToUse = Ice.randomString(5000);
     String salt = Ice.randomSalt();
     String password = Ice.randomString(20);
     
@@ -435,6 +435,8 @@ Opening and closing a Tray<br/>
 
 <br/>
 <h2>Updates</h2>
+v1.1.104 - Replace Hex IV String decoder for more lighweight version, bug fix on salt encoding to byte[] <br/>
+v1.1.103 - Changed default AES to GCM No Padding for Android compatability<br/>
 v1.1.101 - Ice.Tray pooling finalised<br/>
 v1.1.100 - Ice.Tray pooling implemented - Server side implementations<br/>
 v1.1.024 - Defaults now set to the security versions AES-GCM, SHA256, Test class expanded.<br/>

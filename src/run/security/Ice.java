@@ -103,6 +103,7 @@ public class Ice {
     public static final int RSA_KEY_1024 = 1024;
     public static final int RSA_KEY_2048 = 2048;
     public static final int RSA_KEY_4096 = 4096;
+    public static int DEFAULT_BASE64_PADDING=Base64.DEFAULT;
 
 
     // Ciphers and keys
@@ -115,7 +116,7 @@ public class Ice {
     public static final String CIPHER_AES_CFB_NoPadding= "AES/CFB/NoPadding";
     public static final String CIPHER_AES_GCM_NoPadding= "AES/GCM/NoPadding";
     public static final String CIPHER_AES_GCM_PKCS5Padding= "AES/GCM/PKCS5Padding";
-    private static final String DEFAULT_CIPHER=CIPHER_AES_GCM_PKCS5Padding;
+    private static final String DEFAULT_CIPHER=CIPHER_AES_GCM_NoPadding;
     private static final String DEFAULT_ALGORITHM="AES";
 
     private static final List<String> validCiphers=new ArrayList<>();
@@ -134,11 +135,16 @@ public class Ice {
     public static final String KEY_PBKDF2WithHmacSHA1_DEPRECIATED="PBKDF2WithHmacSHA1";
     public static final String KEY_PBKDF2WithHmacSHA256="PBKDF2WithHmacSHA256";
     public static final String KEY_PBKDF2WithHmacSHA512="PBKDF2WithHmacSHA512";
+    public static final String KEY_PBKDF2WithHmacSHA224="PBKDF2withHmacSHA224";
+    public static final String KEY_PBKDF2WithHmacSHA384="PBKDF2withHmacSHA384";
+
     private static final List<String> validKeys=new ArrayList<>();
     static {
         validKeys.add(KEY_PBKDF2WithHmacSHA1_DEPRECIATED);
         validKeys.add(KEY_PBKDF2WithHmacSHA256);
         validKeys.add(KEY_PBKDF2WithHmacSHA512);
+        validKeys.add(KEY_PBKDF2WithHmacSHA224);
+        validKeys.add(KEY_PBKDF2WithHmacSHA384);
     }
 
     private static final Map<String,Charset> charsets=new HashMap();
@@ -148,7 +154,7 @@ public class Ice {
         charsets.put(US_ASCII.name(),US_ASCII);
         charsets.put(ISO_8859_1.name(),ISO_8859_1);
     }
-
+    
 
 
 
@@ -178,6 +184,9 @@ public class Ice {
                 charsets.put(cs.name(),cs);
             DEFAULT_CHARSET=cs;
         }
+    }
+    public static void setDefaultBase64(int DEFAULT_) {
+        DEFAULT_BASE64_PADDING=DEFAULT_;
     }
     public static void setDefaultIv(String iv) throws InvalidIvException {
         if(iv==null || !iv.isEmpty())
@@ -673,7 +682,7 @@ public class Ice {
          *
          * @param bytesToEncrypt   the data to encrypt and send to the server
          * @return the bytes[]
-         * @throws any Exception thrown in encrypting
+         * @throws Exception thrown in encrypting
          */
         private byte[] encrypt(byte[] bytesToEncrypt) throws Exception {
             return IceRSA.encrypt(bytesToEncrypt, usePublicKey);
@@ -684,7 +693,7 @@ public class Ice {
          *
          * @param bytesToDecrypt   the data to decrypt received from the client side
          * @return the decrypted String result
-         * @throws any Exception thrown in decrypting
+         * @throws Exception thrown in decrypting
          */
         private String decrypt(byte[] bytesToDecrypt) throws Exception {
             return IceRSA.decrypt(bytesToDecrypt,usePrivateKey);
@@ -940,6 +949,10 @@ public class Ice {
             this(CIPHER_,KEY_,ivHex,keyLength,iterations);
             addTasks(tasks);
         }
+        public Flavour(String CIPHER_, String KEY_, int keyLength, int iterations, Pick... tasks) {
+            this(CIPHER_,KEY_,DEFAULT_IV_HEX,keyLength,iterations);
+            addTasks(tasks);
+        }
         /**
          * Flavour constructor, the Flavour defines the details of any encryption / decryption of data
          * 
@@ -1085,13 +1098,17 @@ public class Ice {
                 return;
             }
         }
+        /**
+         * Makes a copy of the maker, if the IV in the maker is invalid will quietly continue and throw !onSuccess when packing / unpacking
+         * @return 
+         */
         public Maker copy() {
             Maker maker = new Maker(flavour.copy());
             maker.cipher=cipher;
             if(flavour.isGCM()) {
-                maker.gcmParameterSpec = new GCMParameterSpec(128, Ice.hex(flavour.iv));
+                maker.gcmParameterSpec = new GCMParameterSpec(128, Hex.decodeNoThrow(flavour.iv));
             } else {
-                maker.ivParameterSpec = new IvParameterSpec(Ice.hex(flavour.iv));
+                maker.ivParameterSpec = new IvParameterSpec(Hex.decodeNoThrow(flavour.iv));
             }
             if(salty!=null) {
                 maker.salty=salty;
@@ -1108,19 +1125,7 @@ public class Ice {
         public String getMessage() {
             return message;
         }
-        /*
-        public boolean isLocked() { return lockedMode!=MODE_UNLOCKED;}
-        public boolean lock(int MODE_) {
-            if(MODE_==MODE_PACK) {
-                lockedMode =MODE_;
-            } else {
-                lockedMode =MODE_UNPACK;
-            }
 
-            preFreeze();
-            return false;
-        }
-        */
         private void clearHalted() {
             if(halted) {
                 halted = false;
@@ -1315,11 +1320,17 @@ public class Ice {
             }
         }
         private void preDrip() {
-            byte[] iv = hex(flavour.iv);
-            if(flavour.isGCM()) {
-                gcmParameterSpec = new GCMParameterSpec(128, iv);
-            } else {
-                ivParameterSpec = new IvParameterSpec(iv);
+            try {
+                byte[] iv = hex(flavour.iv);
+                if(flavour.isGCM()) {
+                    gcmParameterSpec = new GCMParameterSpec(128, iv);
+                } else {
+                    ivParameterSpec = new IvParameterSpec(iv);
+                }
+            } catch(InvalidIvException e) {
+                halted=true;
+                message="Cracked Ice:  preDrip iv = "+e.getMessage();
+                haltedEx=e;
             }
         }
         private void preFreeze() {
@@ -1423,9 +1434,9 @@ public class Ice {
                             case BASE64:
                                 try {
                                     if(doPack) {
-                                        cbytes = Base64.encode(cbytes, Base64.DEFAULT);
+                                        cbytes = Base64.encode(cbytes, DEFAULT_BASE64_PADDING);
                                     } else {
-                                        cbytes = Base64.decode(cbytes, Base64.DEFAULT);
+                                        cbytes = Base64.decode(cbytes, DEFAULT_BASE64_PADDING);
                                     }
                                 } catch(IllegalArgumentException e) {
                                     halted=true;
@@ -1459,6 +1470,10 @@ public class Ice {
                                     } catch (InvalidKeyException e) {
                                         halted = true;
                                         message = "Cracked Ice:  Cipher: InvalidKeyException = " + e.getMessage();
+                                        haltedEx = e;
+                                    } catch(Exception e) {
+                                        halted = true;
+                                        message = "Cracked Ice:  Exception in cipher execution = " + e.getMessage();
                                         haltedEx = e;
                                     }
 
@@ -1567,7 +1582,7 @@ public class Ice {
         }
         private SecretKey generateKey() throws NoSuchAlgorithmException, InvalidKeySpecException, IllegalStateException {
             SecretKeyFactory factory = SecretKeyFactory.getInstance(flavour.secretKey);
-            KeySpec spec = new PBEKeySpec(block.password.toCharArray(), hex(block.salt), flavour.iterations, flavour.keyLength);
+            KeySpec spec = new PBEKeySpec(block.password.toCharArray(), Ice.stringToBytes(block.salt), flavour.iterations, flavour.keyLength);
             SecretKey key = new SecretKeySpec(factory.generateSecret(spec).getEncoded(), DEFAULT_ALGORITHM);
             return key;
         }
@@ -1751,10 +1766,11 @@ public class Ice {
      * @return the Hex String result
      * @throws DecoderException this is thrown if the String is not a valid hex string
      */
-    public static byte[] hex(String str) throws DecoderException {
+    public static byte[] hex(String str) throws InvalidIvException {
         return Hex.decode(str);
     }
 
+    
     /**
      * Generate a random RSA key pair for Ice.Pop PGP
      * @param RSA_KEY_ the key size to use
@@ -1799,7 +1815,7 @@ public class Ice {
      * @throws GeneralSecurityException  if the Java implementation does not have the RSA algorithm 
      */
     public static PrivateKey stringToPrivateKey(String privateKeyString) throws GeneralSecurityException {
-        byte[] clear = Base64.decode(privateKeyString,Base64.DEFAULT);
+        byte[] clear = Base64.decode(privateKeyString,DEFAULT_BASE64_PADDING);
         PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(clear);
         KeyFactory fact = KeyFactory.getInstance("RSA");
         PrivateKey priv = fact.generatePrivate(keySpec);
@@ -1814,7 +1830,7 @@ public class Ice {
      * @throws GeneralSecurityException if the Java implementation does not have the RSA algorithm 
      */
     public static PublicKey stringToPublicKey(String publicKeyString) throws GeneralSecurityException {
-        byte[] data = Base64.decode(publicKeyString,Base64.DEFAULT);
+        byte[] data = Base64.decode(publicKeyString,DEFAULT_BASE64_PADDING);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(data);
         KeyFactory fact = KeyFactory.getInstance("RSA");
         return fact.generatePublic(spec);
@@ -1830,7 +1846,7 @@ public class Ice {
         PKCS8EncodedKeySpec spec = fact.getKeySpec(priv,
                 PKCS8EncodedKeySpec.class);
         byte[] packed = spec.getEncoded();
-        String key64 = bytesToString(Base64.encode(packed,Base64.DEFAULT));
+        String key64 = bytesToString(Base64.encode(packed,DEFAULT_BASE64_PADDING));
 
         Arrays.fill(packed, (byte) 0);
         return key64;
@@ -1846,7 +1862,7 @@ public class Ice {
         KeyFactory fact = KeyFactory.getInstance("RSA");
         X509EncodedKeySpec spec = fact.getKeySpec(publ,
                 X509EncodedKeySpec.class);
-        return bytesToString(Base64.encode(spec.getEncoded(),Base64.DEFAULT));
+        return bytesToString(Base64.encode(spec.getEncoded(),DEFAULT_BASE64_PADDING));
     }
 
     public static class Zip {
@@ -1965,488 +1981,38 @@ public class Ice {
 
 
     /*
-    Hex converter class by Spongy castle
+    Hex converter class 
      */
-    public static class EncoderException
-            extends IllegalStateException
-    {
-        private Throwable cause;
-
-        EncoderException(String msg, Throwable cause)
-        {
-            super(msg);
-
-            this.cause = cause;
+    private static class Hex {
+        private static byte[] decodeNoThrow(String str) {
+            try {
+                return decode(str);
+            } catch(InvalidIvException e) {}
+            return null;
+        }
+        private static byte[] decode(String str) throws InvalidIvException {
+            byte[] result = new byte[str.length()];
+            int pos=0;
+            for(int i=0; i<str.length(); i+=2) {
+                result[pos++]=hexToByte(str.substring(i,i+2));
+            }
+            return result;
+        }
+        public static byte hexToByte(String hexString) throws InvalidIvException {
+            int firstDigit = toDigit(hexString.charAt(0));
+            int secondDigit = toDigit(hexString.charAt(1));
+            return (byte) ((firstDigit << 4) + secondDigit);
         }
 
-        public Throwable getCause()
-        {
-            return cause;
+        private static int toDigit(char hexChar) throws InvalidIvException {
+            int digit = Character.digit(hexChar, 16);
+            if(digit == -1) {
+                throw new InvalidIvException(
+                  "Invalid Hexadecimal Character: "+ hexChar);
+            }
+            return digit;
         }
     }
-    private static class Hex
-    {
-        static final Encoder encoder = new HexEncoder();
-
-        public static String toHexString(
-                byte[] data)
-        {
-            return toHexString(data, 0, data.length);
-        }
-
-        public static String toHexString(
-                byte[] data,
-                int    off,
-                int    length)
-        {
-            byte[] encoded = encode(data, off, length);
-            return bytesToString(encoded);
-        }
-
-        /**
-         * encode the input data producing a Hex encoded byte array.
-         *
-         * @return a byte array containing the Hex encoded data.
-         */
-        public static byte[] encode(
-                byte[]    data)
-        {
-            return encode(data, 0, data.length);
-        }
-
-        /**
-         * encode the input data producing a Hex encoded byte array.
-         *
-         * @return a byte array containing the Hex encoded data.
-         */
-        public static byte[] encode(
-                byte[]    data,
-                int       off,
-                int       length)
-        {
-            ByteArrayOutputStream bOut = new ByteArrayOutputStream();
-
-            try
-            {
-                encoder.encode(data, off, length, bOut);
-            }
-            catch (Exception e)
-            {
-                throw new EncoderException("exception encoding Hex string: " + e.getMessage(), e);
-            }
-
-            return bOut.toByteArray();
-        }
-
-        /**
-         * Hex encode the byte data writing it to the given output stream.
-         *
-         * @return the number of bytes produced.
-         */
-        public static int encode(
-                byte[]         data,
-                OutputStream   out)
-                throws IOException
-        {
-            return encoder.encode(data, 0, data.length, out);
-        }
-
-        /**
-         * Hex encode the byte data writing it to the given output stream.
-         *
-         * @return the number of bytes produced.
-         */
-        public static int encode(
-                byte[]         data,
-                int            off,
-                int            length,
-                OutputStream   out)
-                throws IOException
-        {
-            return encoder.encode(data, off, length, out);
-        }
-
-        /**
-         * decode the Hex encoded input data. It is assumed the input data is valid.
-         *
-         * @return a byte array representing the decoded data.
-         */
-        public static byte[] decode(
-                byte[]    data)
-        {
-            ByteArrayOutputStream    bOut = new ByteArrayOutputStream();
-
-            try
-            {
-                encoder.decode(data, 0, data.length, bOut);
-            }
-            catch (Exception e)
-            {
-                throw new DecoderException("exception decoding Hex data: " + e.getMessage(), e);
-            }
-
-            return bOut.toByteArray();
-        }
-
-        /**
-         * decode the Hex encoded String data - whitespace will be ignored.
-         *
-         * @return a byte array representing the decoded data.
-         */
-        public static byte[] decode(
-                String    data)
-        {
-            ByteArrayOutputStream    bOut = new ByteArrayOutputStream();
-
-            try
-            {
-                encoder.decode(data, bOut);
-            }
-            catch (Exception e)
-            {
-                throw new DecoderException("exception decoding Hex string: " + e.getMessage(), e);
-            }
-
-            return bOut.toByteArray();
-        }
-
-        /**
-         * decode the Hex encoded String data writing it to the given output stream,
-         * whitespace characters will be ignored.
-         *
-         * @return the number of bytes produced.
-         */
-        public static int decode(
-                String          data,
-                OutputStream    out)
-                throws IOException
-        {
-            return encoder.decode(data, out);
-        }
-    }
-
-
-    /*
-
-    HexEncoder
-
-     */
-    private interface Encoder
-    {
-        int encode(byte[] data, int off, int length, OutputStream out) throws IOException;
-
-        int decode(byte[] data, int off, int length, OutputStream out) throws IOException;
-
-        int decode(String data, OutputStream out) throws IOException;
-    }
-    private static class HexEncoder
-            implements Encoder
-    {
-        protected final byte[] encodingTable =
-                {
-                        (byte)'0', (byte)'1', (byte)'2', (byte)'3', (byte)'4', (byte)'5', (byte)'6', (byte)'7',
-                        (byte)'8', (byte)'9', (byte)'a', (byte)'b', (byte)'c', (byte)'d', (byte)'e', (byte)'f'
-                };
-
-        /*
-         * set up the decoding table.
-         */
-        protected final byte[] decodingTable = new byte[128];
-
-        protected void initialiseDecodingTable()
-        {
-            for (int i = 0; i < decodingTable.length; i++)
-            {
-                decodingTable[i] = (byte)0xff;
-            }
-
-            for (int i = 0; i < encodingTable.length; i++)
-            {
-                decodingTable[encodingTable[i]] = (byte)i;
-            }
-
-            decodingTable['A'] = decodingTable['a'];
-            decodingTable['B'] = decodingTable['b'];
-            decodingTable['C'] = decodingTable['c'];
-            decodingTable['D'] = decodingTable['d'];
-            decodingTable['E'] = decodingTable['e'];
-            decodingTable['F'] = decodingTable['f'];
-        }
-
-        public HexEncoder()
-        {
-            initialiseDecodingTable();
-        }
-
-        /**
-         * encode the input data producing a Hex output stream.
-         *
-         * @return the number of bytes produced.
-         */
-        public int encode(
-                byte[]                data,
-                int                    off,
-                int                    length,
-                OutputStream    out)
-                throws IOException
-        {
-            for (int i = off; i < (off + length); i++)
-            {
-                int    v = data[i] & 0xff;
-
-                out.write(encodingTable[(v >>> 4)]);
-                out.write(encodingTable[v & 0xf]);
-            }
-
-            return length * 2;
-        }
-
-        private boolean ignore(
-                char    c)
-        {
-            return c == '\n' || c =='\r' || c == '\t' || c == ' ';
-        }
-
-        /**
-         * decode the Hex encoded byte data writing it to the given output stream,
-         * whitespace characters will be ignored.
-         *
-         * @return the number of bytes produced.
-         */
-        public int decode(
-                byte[]          data,
-                int             off,
-                int             length,
-                OutputStream    out)
-                throws IOException
-        {
-            byte    b1, b2;
-            int     outLen = 0;
-
-            int     end = off + length;
-
-            while (end > off)
-            {
-                if (!ignore((char)data[end - 1]))
-                {
-                    break;
-                }
-
-                end--;
-            }
-
-            int i = off;
-            while (i < end)
-            {
-                while (i < end && ignore((char)data[i]))
-                {
-                    i++;
-                }
-
-                b1 = decodingTable[data[i++]];
-
-                while (i < end && ignore((char)data[i]))
-                {
-                    i++;
-                }
-
-                b2 = decodingTable[data[i++]];
-
-                if ((b1 | b2) < 0)
-                {
-                    throw new IOException("invalid characters encountered in Hex data");
-                }
-
-                out.write((b1 << 4) | b2);
-
-                outLen++;
-            }
-
-            return outLen;
-        }
-
-        /**
-         * decode the Hex encoded String data writing it to the given output stream,
-         * whitespace characters will be ignored.
-         *
-         * @return the number of bytes produced.
-         */
-        public int decode(
-                String          data,
-                OutputStream out)
-                throws IOException
-        {
-            byte    b1, b2;
-            int     length = 0;
-
-            int     end = data.length();
-
-            while (end > 0)
-            {
-                if (!ignore(data.charAt(end - 1)))
-                {
-                    break;
-                }
-
-                end--;
-            }
-
-            int i = 0;
-            while (i < end)
-            {
-                while (i < end && ignore(data.charAt(i)))
-                {
-                    i++;
-                }
-
-                b1 = decodingTable[data.charAt(i++)];
-
-                while (i < end && ignore(data.charAt(i)))
-                {
-                    i++;
-                }
-
-                b2 = decodingTable[data.charAt(i++)];
-
-                if ((b1 | b2) < 0)
-                {
-                    throw new IOException("invalid characters encountered in Hex string");
-                }
-
-                out.write((b1 << 4) | b2);
-
-                length++;
-            }
-
-            return length;
-        }
-    }
-
-
-    /*
-    Hex translator
-     */
-    private interface Translator
-    {
-        /**
-         * size of the output block on encoding produced by getDecodedBlockSize()
-         * bytes.
-         */
-        public int getEncodedBlockSize();
-
-        public int encode(byte[] in, int inOff, int length, byte[] out, int outOff);
-
-        /**
-         * size of the output block on decoding produced by getEncodedBlockSize()
-         * bytes.
-         */
-        public int getDecodedBlockSize();
-
-        public int decode(byte[] in, int inOff, int length, byte[] out, int outOff);
-    }
-    private static class HexTranslator
-            implements Translator
-    {
-        private static final byte[]   hexTable =
-                {
-                        (byte)'0', (byte)'1', (byte)'2', (byte)'3', (byte)'4', (byte)'5', (byte)'6', (byte)'7',
-                        (byte)'8', (byte)'9', (byte)'a', (byte)'b', (byte)'c', (byte)'d', (byte)'e', (byte)'f'
-                };
-
-        /**
-         * size of the output block on encoding produced by getDecodedBlockSize()
-         * bytes.
-         */
-        public int getEncodedBlockSize()
-        {
-            return 2;
-        }
-
-        public int encode(
-                byte[]  in,
-                int     inOff,
-                int     length,
-                byte[]  out,
-                int     outOff)
-        {
-            for (int i = 0, j = 0; i < length; i++, j += 2)
-            {
-                out[outOff + j] = hexTable[(in[inOff] >> 4) & 0x0f];
-                out[outOff + j + 1] = hexTable[in[inOff] & 0x0f];
-
-                inOff++;
-            }
-
-            return length * 2;
-        }
-
-        /**
-         * size of the output block on decoding produced by getEncodedBlockSize()
-         * bytes.
-         */
-        public int getDecodedBlockSize()
-        {
-            return 1;
-        }
-
-        public int decode(
-                byte[]  in,
-                int     inOff,
-                int     length,
-                byte[]  out,
-                int     outOff)
-        {
-            int halfLength = length / 2;
-            byte left, right;
-            for (int i = 0; i < halfLength; i++)
-            {
-                left  = in[inOff + i * 2];
-                right = in[inOff + i * 2 + 1];
-
-                if (left < (byte)'a')
-                {
-                    out[outOff] = (byte)((left - '0') << 4);
-                }
-                else
-                {
-                    out[outOff] = (byte)((left - 'a' + 10) << 4);
-                }
-                if (right < (byte)'a')
-                {
-                    out[outOff] += (byte)(right - '0');
-                }
-                else
-                {
-                    out[outOff] += (byte)(right - 'a' + 10);
-                }
-
-                outOff++;
-            }
-
-            return halfLength;
-        }
-    }
-    private static class DecoderException
-            extends IllegalStateException
-    {
-        private Throwable cause;
-
-        DecoderException(String msg, Throwable cause)
-        {
-            super(msg);
-
-            this.cause = cause;
-        }
-
-        public Throwable getCause()
-        {
-            return cause;
-        }
-    }
-
-
-
-
 
     /*
 
